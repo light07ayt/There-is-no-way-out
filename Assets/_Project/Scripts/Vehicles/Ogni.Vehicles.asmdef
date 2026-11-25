@@ -1,0 +1,20 @@
+{
+    "name": "Ogni.Vehicles",
+    "rootNamespace": "Ogni.Vehicles",
+    "references": [
+        "Ogni.Core",
+        "Ogni.Resources",
+        "Ogni.Player",
+        "Unity.InputSystem",
+        "Unity.Netcode.Runtime"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

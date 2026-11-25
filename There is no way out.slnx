@@ -1,0 +1,14 @@
+﻿<Solution>
+  <Project Path="Ogni.Building.csproj" />
+  <Project Path="Assembly-CSharp.csproj" />
+  <Project Path="Ogni.Editor.csproj" />
+  <Project Path="Ogni.Player.csproj" />
+  <Project Path="Ogni.Resources.csproj" />
+  <Project Path="Ogni.Entities.csproj" />
+  <Project Path="Ogni.Core.csproj" />
+  <Project Path="Ogni.World.csproj" />
+  <Project Path="Ogni.Net.csproj" />
+  <Project Path="Ogni.UI.csproj" />
+  <Project Path="Ogni.Vehicles.csproj" />
+  <Project Path="Assembly-CSharp-Editor.csproj" />
+</Solution>

@@ -1,0 +1,19 @@
+{
+    "name": "Ogni.Entities",
+    "rootNamespace": "Ogni.Entities",
+    "references": [
+        "Ogni.Core",
+        "Unity.Netcode.Runtime",
+        "Ogni.Resources",
+        "Ogni.World"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

@@ -1,0 +1,20 @@
+{
+    "name": "Ogni.Player",
+    "rootNamespace": "Ogni.Player",
+    "references": [
+        "Ogni.Core",
+        "Ogni.Resources",
+        "Unity.InputSystem",
+        "Unity.Netcode.Runtime",
+        "Unity.Collections"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

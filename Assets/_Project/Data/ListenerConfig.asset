@@ -1,0 +1,30 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c7a40ca50d56c7e44b07df286b5ff6c4, type: 3}
+  m_Name: ListenerConfig
+  m_EditorClassIdentifier: Ogni.Entities::Ogni.Entities.ListenerConfig
+  hearingMultiplier: 1
+  priorityDecayPerSecond: 4
+  retargetThreshold: 0.5
+  retargetInterval: 0.3
+  investigateSpeed: 2.4
+  wanderSpeed: 1
+  snapDistance: 6
+  searchDuration: 7
+  searchTurnSpeed: 45
+  wanderRadius: 5
+  wanderIntervalMin: 8
+  wanderIntervalMax: 15
+  attackReach: 1.6
+  attackDamage: 20
+  attackCooldown: 1.4
+  attackPause: 0.6

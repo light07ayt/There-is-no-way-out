@@ -1,0 +1,31 @@
+{
+    "name": "Ogni.Editor",
+    "rootNamespace": "Ogni.EditorTools",
+    "references": [
+        "Ogni.Core",
+        "Ogni.Player",
+        "Ogni.Resources",
+        "Ogni.Building",
+        "Ogni.Vehicles",
+        "Ogni.Entities",
+        "Ogni.World",
+        "Ogni.Net",
+        "Ogni.UI",
+        "Unity.Netcode.Runtime",
+        "Unity.Netcode.Components",
+        "Unity.RenderPipelines.Core.Runtime",
+        "Unity.RenderPipelines.Universal.Runtime",
+        "Unity.RenderPipelines.Universal.Editor"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

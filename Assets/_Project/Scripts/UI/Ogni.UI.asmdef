@@ -1,0 +1,20 @@
+{
+    "name": "Ogni.UI",
+    "rootNamespace": "Ogni.UI",
+    "references": [
+        "Ogni.Core",
+        "Ogni.Player",
+        "Ogni.Resources",
+        "Ogni.World",
+        "Unity.Netcode.Runtime"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
