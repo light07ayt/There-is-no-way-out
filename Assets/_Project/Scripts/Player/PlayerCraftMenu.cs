@@ -1,67 +1,40 @@
+using System.Collections.Generic;
 using Ogni.Core;
-using UnityEngine.InputSystem;
 using Ogni.Resources;
 using Unity.Netcode;
 using UnityEngine;
+using UnityEngine.InputSystem;
 
 namespace Ogni.Player
 {
     /// <summary>
-    /// Меню инвентаря и крафта. Оружие открывается после изготовления;
-    /// сервер проверяет ресурсы и выдаёт разблокировку.
+    /// Инвентарь и крафт в стиле референса:
+    /// вкладки категорий («Все», «Ресурсы», «Медицина», «Боеприпасы», «Прочее», «Крафт»),
+    /// сетка 6x3 со стилизованными иконками и количеством в углу, правая карточка описания предмета
+    /// и все сетевые рецепты крафта оружия/медицины.
     /// </summary>
     [RequireComponent(typeof(PlayerInputReader))]
     public class PlayerCraftMenu : NetworkBehaviour
     {
+        private enum InvTab { All, Resources, Medicine, Ammo, Other, Craft }
+
         private PlayerInputReader _input;
         private PlayerInventory _inventory;
         private PlayerHealth _health;
         private PlayerEquipment _equipment;
         private bool _isOpen;
+        private InvTab _tab = InvTab.All;
+        private ResourceType _selectedItem = ResourceType.Wood;
+        private Vector2 _craftScroll;
 
         public bool IsOpen => _isOpen;
+        public static bool IsAnyOpen { get; private set; }
 
-        private void Awake()
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        private static void ResetStaticOpen()
         {
-            _input = GetComponent<PlayerInputReader>();
-            _inventory = GetComponent<PlayerInventory>();
-            _health = GetComponent<PlayerHealth>();
-            _equipment = GetComponent<PlayerEquipment>();
+            IsAnyOpen = false;
         }
-
-        private void Update()
-        {
-            if (!IsOwner) return;
-
-            if (_health != null && _health.IsDowned)
-            {
-                if (_isOpen) SetOpen(false);
-                return;
-            }
-
-            bool iPressed = Keyboard.current != null && Keyboard.current.iKey.wasPressedThisFrame;
-            bool escPressed = Keyboard.current != null && Keyboard.current.escapeKey.wasPressedThisFrame;
-            if (_input.CraftMenuPressed || iPressed) SetOpen(!_isOpen);
-            else if (_isOpen && escPressed) SetOpen(false);
-
-            // Пока меню открыто, клавиши 1-7 берут в руки уже созданное оружие (без закрытия меню).
-            if (_isOpen && _equipment != null)
-            {
-                int slot = _input.SlotPressed;
-                if (slot >= 0 && slot <= (int)PlayerEquipment.ToolSlot.Bow && _equipment.IsUnlocked((PlayerEquipment.ToolSlot)slot))
-                    _equipment.SelectSlot((PlayerEquipment.ToolSlot)slot);
-            }
-        }
-
-        private void SetOpen(bool open)
-        {
-            _isOpen = open;
-            FirstPersonCamera.SetCursorLocked(!open);
-        }
-
-        // ------------------------------------------------------------------ интерфейс
-        // IMGUI-тема: скруглённые панели/кнопки из процедурных текстур (создаются один раз), стили кэшируются,
-        // строки рецептов и счётчики пересобираются только при изменении инвентаря - без аллокаций каждый кадр.
 
         private struct Cost
         {
@@ -83,23 +56,9 @@ namespace Ogni.Player
 
         private static readonly ResourceType[] ResOrder =
         {
-            ResourceType.Wood, ResourceType.Planks, ResourceType.Stone, ResourceType.Metal, ResourceType.Cloth,
-            ResourceType.Fuel, ResourceType.Medicine, ResourceType.Battery, ResourceType.Ammo, ResourceType.Arrows
-        };
-
-        private static readonly Color[] ResColors =
-        {
-            new Color(0.62f, 0.42f, 0.24f), new Color(0.86f, 0.68f, 0.42f), new Color(0.62f, 0.64f, 0.68f), new Color(0.48f, 0.62f, 0.78f),
-            new Color(0.84f, 0.80f, 0.68f), new Color(0.95f, 0.55f, 0.20f), new Color(0.90f, 0.38f, 0.45f), new Color(0.95f, 0.85f, 0.30f),
-            new Color(0.92f, 0.76f, 0.35f), new Color(0.72f, 0.58f, 0.40f)
-        };
-
-        private static readonly (PlayerEquipment.ToolSlot slot, string label)[] Slots =
-        {
-            (PlayerEquipment.ToolSlot.Unarmed, "1  Кулаки"), (PlayerEquipment.ToolSlot.Axe, "2  Топор"),
-            (PlayerEquipment.ToolSlot.Hammer, "3  Молоток"), (PlayerEquipment.ToolSlot.Pistol, "4  Пистолет"),
-            (PlayerEquipment.ToolSlot.Club, "5  Дубина"), (PlayerEquipment.ToolSlot.Shotgun, "6  Дробовик"),
-            (PlayerEquipment.ToolSlot.Bow, "7  Лук")
+            ResourceType.Wood, ResourceType.Stone, ResourceType.Metal, ResourceType.Planks,
+            ResourceType.Cloth, ResourceType.Fuel, ResourceType.Medicine, ResourceType.Battery,
+            ResourceType.Ammo, ResourceType.Arrows
         };
 
         private static readonly Recipe[] Recipes =
@@ -111,364 +70,680 @@ namespace Ogni.Player
             new Recipe { Group = "МАТЕРИАЛЫ", Title = "Самодельное топливо", Effect = "+1", Id = 4, Costs = new[] { new Cost(ResourceType.Wood, 3), new Cost(ResourceType.Cloth, 1) } },
             new Recipe { Group = "МАТЕРИАЛЫ", Title = "Батарейка", Effect = "+1", Id = 5, Costs = new[] { new Cost(ResourceType.Metal, 1), new Cost(ResourceType.Fuel, 1) } },
             new Recipe { Group = "МАТЕРИАЛЫ", Title = "Стрелы", Effect = "+3", Id = 10, Costs = new[] { new Cost(ResourceType.Wood, 1), new Cost(ResourceType.Stone, 1) } },
-            new Recipe { Group = "ОРУЖИЕ", Title = "Дубина", Id = 6, IsWeapon = true, Slot = PlayerEquipment.ToolSlot.Club, Costs = new[] { new Cost(ResourceType.Wood, 3) } },
+            new Recipe { Group = "ОРУЖИЕ", Title = "Бита", Id = 6, IsWeapon = true, Slot = PlayerEquipment.ToolSlot.Club, Costs = new[] { new Cost(ResourceType.Wood, 3) } },
             new Recipe { Group = "ОРУЖИЕ", Title = "Пистолет", Id = 7, IsWeapon = true, Slot = PlayerEquipment.ToolSlot.Pistol, Costs = new[] { new Cost(ResourceType.Metal, 4), new Cost(ResourceType.Planks, 2) } },
-            new Recipe { Group = "ОРУЖИЕ", Title = "Дробовик", Id = 8, IsWeapon = true, Slot = PlayerEquipment.ToolSlot.Shotgun, Costs = new[] { new Cost(ResourceType.Metal, 7), new Cost(ResourceType.Planks, 3) } },
+            new Recipe { Group = "ОРУЖИЕ", Title = "Винтовка", Id = 8, IsWeapon = true, Slot = PlayerEquipment.ToolSlot.Shotgun, Costs = new[] { new Cost(ResourceType.Metal, 7), new Cost(ResourceType.Planks, 3) } },
             new Recipe { Group = "ОРУЖИЕ", Title = "Лук", Id = 9, IsWeapon = true, Slot = PlayerEquipment.ToolSlot.Bow, Costs = new[] { new Cost(ResourceType.Wood, 4), new Cost(ResourceType.Cloth, 2) } },
         };
 
-        // Палитра по референсу: глубокий угольный графит + тёмно-винный акцент.
-        private static readonly Color ColBg = new Color(0.062f, 0.056f, 0.062f, 0.96f);
-        private static readonly Color ColPanel = new Color(0.082f, 0.075f, 0.082f, 0.98f);
-        private static readonly Color ColCard = new Color(0.108f, 0.100f, 0.108f, 1f);
-        private static readonly Color ColAccent = new Color(0.78f, 0.22f, 0.25f);
-        private static readonly Color ColGood = new Color(0.46f, 0.84f, 0.54f);
-        private static readonly Color ColBad = new Color(0.92f, 0.38f, 0.36f);
-        private static readonly Color ColDim = new Color(0.64f, 0.64f, 0.68f);
+        private bool _stylesReady;
+        private readonly List<Texture2D> _textures = new();
+        private readonly Dictionary<ResourceType, Texture2D> _icons = new();
+        private Texture2D _dimTex;
+        private GUIStyle _panelStyle, _cardStyle, _slotStyle, _slotSelStyle, _tabStyle, _tabActStyle;
+        private GUIStyle _btnStyle, _btnRedStyle, _btnOffStyle, _titleStyle, _itemTitleStyle, _descStyle, _hintStyle, _countStyle, _headStyle, _richStyle;
 
-        private static Texture2D _tBg, _tPanel, _tCard, _tCardActive, _tBtn, _tBtnHover, _tBtnDown, _tBtnOff, _tBtnClose, _tBtnTake, _tBtnTakeHover, _tBar, _tWhite;
-        private static GUIStyle _sBg, _sPanel, _sCard, _sCardActive, _sBtn, _sBtnTake, _sBtnOff, _sBtnClose, _sTitle, _sHead, _sLabel, _sSmall, _sRich, _sCount, _sBar;
-        private Vector2 _scroll;
-        private int _lastHash = int.MinValue;
-        private readonly string[] _resText = new string[10];
-        private string _hpText = string.Empty;
-        private float _hpFill = 1f;
-
-        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
-        private static void ResetUiStatics()
+        private void Awake()
         {
-            _tBg = _tPanel = _tCard = _tCardActive = _tBtn = _tBtnHover = _tBtnDown = _tBtnOff = _tBtnClose = _tBtnTake = _tBtnTakeHover = _tBar = _tWhite = null;
-            _sBg = null;
+            _input = GetComponent<PlayerInputReader>();
+            _inventory = GetComponent<PlayerInventory>();
+            _health = GetComponent<PlayerHealth>();
+            _equipment = GetComponent<PlayerEquipment>();
         }
 
-        private static Texture2D Rounded(Color fill, Color border, int radius, float borderWidth)
+        private void OnDisable()
         {
-            const int size = 32;
-            Texture2D t = new Texture2D(size, size, TextureFormat.RGBA32, false)
+            if (_isOpen) SetOpen(false);
+        }
+
+        private void OnDestroy()
+        {
+            if (_isOpen) SetOpen(false);
+            foreach (Texture2D t in _textures) if (t != null) Destroy(t);
+            _textures.Clear();
+            _icons.Clear();
+        }
+
+        private void Update()
+        {
+            if (!IsOwner) return;
+
+            if (_health != null && _health.IsDowned)
             {
-                hideFlags = HideFlags.HideAndDontSave, filterMode = FilterMode.Bilinear, wrapMode = TextureWrapMode.Clamp
-            };
-            Color32[] px = new Color32[size * size];
-            float half = size * 0.5f;
-            for (int y = 0; y < size; y++)
-            {
-                int row = y * size;
-                for (int x = 0; x < size; x++)
-                {
-                    float qx = Mathf.Abs(x + 0.5f - half) - (half - radius);
-                    float qy = Mathf.Abs(y + 0.5f - half) - (half - radius);
-                    float d = Mathf.Sqrt(Mathf.Max(qx, 0f) * Mathf.Max(qx, 0f) + Mathf.Max(qy, 0f) * Mathf.Max(qy, 0f)) + Mathf.Min(Mathf.Max(qx, qy), 0f) - radius;
-                    float a = Mathf.Clamp01(0.5f - d);
-                    float edge = borderWidth > 0f ? Mathf.Clamp01(d + borderWidth + 0.5f) : 0f;
-                    Color c = Color.Lerp(fill, border, edge);
-                    c.a *= a;
-                    px[row + x] = (Color32)c;
-                }
+                if (_isOpen) SetOpen(false);
+                return;
             }
 
-            t.SetPixels32(px);
-            t.Apply(false, true);
-            return t;
-        }
+            bool iPressed = Keyboard.current != null && Keyboard.current.iKey.wasPressedThisFrame;
+            bool escPressed = Keyboard.current != null && Keyboard.current.escapeKey.wasPressedThisFrame;
+            if (_input.CraftMenuPressed || iPressed) SetOpen(!_isOpen);
+            else if (_isOpen && escPressed) SetOpen(false);
 
-        /// <summary>Скруглённая кнопка с вертикальным градиентом, мягким верхним бликом и нижней тенью (Color32, без лишних аллокаций).</summary>
-        private static Texture2D RoundedGradient(Color top, Color bottom, Color border, int radius)
-        {
-            const int size = 32;
-            Texture2D t = new Texture2D(size, size, TextureFormat.RGBA32, false)
+            if (_isOpen && _equipment != null)
             {
-                hideFlags = HideFlags.HideAndDontSave, filterMode = FilterMode.Bilinear, wrapMode = TextureWrapMode.Clamp
-            };
-            Color32[] px = new Color32[size * size];
-            float half = size * 0.5f;
-            for (int y = 0; y < size; y++)
-            {
-                float v = y / (size - 1f); // 0 - низ, 1 - верх
-                Color fill = Color.Lerp(bottom, top, v);
-                if (v > 0.80f) fill = Color.Lerp(fill, Color.white, (v - 0.80f) * 2.1f * 0.38f); // чёткий блик сверху
-                if (v < 0.14f) fill = Color.Lerp(fill, Color.black, (0.14f - v) * 2.6f * 0.34f); // объёмная тень снизу
-                int row = y * size;
-                for (int x = 0; x < size; x++)
-                {
-                    float qx = Mathf.Abs(x + 0.5f - half) - (half - radius);
-                    float qy = Mathf.Abs(y + 0.5f - half) - (half - radius);
-                    float d = Mathf.Sqrt(Mathf.Max(qx, 0f) * Mathf.Max(qx, 0f) + Mathf.Max(qy, 0f) * Mathf.Max(qy, 0f)) + Mathf.Min(Mathf.Max(qx, qy), 0f) - radius;
-                    float a = Mathf.Clamp01(0.5f - d);
-                    float edge = Mathf.Clamp01(d + 1.55f);
-                    Color c = Color.Lerp(fill, border, edge);
-                    c.a *= a;
-                    px[row + x] = (Color32)c;
-                }
-            }
-
-            t.SetPixels32(px);
-            t.Apply(false, true);
-            return t;
-        }
-
-        private static GUIStyle Make(Texture2D bg, int border = 12)
-        {
-            GUIStyle st = new GUIStyle();
-            st.normal.background = bg;
-            st.border = new RectOffset(border, border, border, border);
-            return st;
-        }
-
-        private static void EnsureStyles()
-        {
-            if (_sBg != null && _tBg != null) return;
-
-            Color line = new Color(1f, 1f, 1f, 0.07f);
-            _tBg = Rounded(ColBg, new Color(1f, 1f, 1f, 0.13f), 11, 1.2f);
-            _tPanel = Rounded(ColPanel, new Color(1f, 1f, 1f, 0.10f), 8, 1f);
-            _tCard = Rounded(ColCard, new Color(1f, 1f, 1f, 0.10f), 7, 1f);
-            _tCardActive = Rounded(new Color(0.20f, 0.085f, 0.095f, 1f), ColAccent, 7, 1.5f);
-            // Основные кнопки крафта — тёмно-винные/бордовые с чёткой рамкой (как «Начать игру» на референсе).
-            _tBtn = RoundedGradient(new Color(0.52f, 0.11f, 0.135f), new Color(0.31f, 0.055f, 0.07f), new Color(0.78f, 0.25f, 0.28f), 7);
-            _tBtnHover = RoundedGradient(new Color(0.66f, 0.15f, 0.18f), new Color(0.42f, 0.075f, 0.095f), new Color(0.94f, 0.35f, 0.38f), 7);
-            _tBtnDown = RoundedGradient(new Color(0.26f, 0.05f, 0.065f), new Color(0.38f, 0.08f, 0.10f), new Color(0.68f, 0.22f, 0.25f), 7);
-            _tBtnOff = Rounded(new Color(0.105f, 0.098f, 0.105f), new Color(1f, 1f, 1f, 0.08f), 5, 1f);
-            // Строгая графитовая кнопка закрытия и вторичные кнопки «Взять».
-            _tBtnClose = RoundedGradient(new Color(0.18f, 0.18f, 0.20f), new Color(0.11f, 0.11f, 0.13f), new Color(1f, 1f, 1f, 0.22f), 7);
-            _tBtnTake = RoundedGradient(new Color(0.135f, 0.125f, 0.135f), new Color(0.085f, 0.078f, 0.086f), new Color(1f, 1f, 1f, 0.20f), 5);
-            _tBtnTakeHover = RoundedGradient(new Color(0.28f, 0.12f, 0.14f), new Color(0.18f, 0.075f, 0.09f), new Color(0.80f, 0.26f, 0.29f), 7);
-            _tBar = Rounded(new Color(0.09f, 0.10f, 0.12f), line, 6, 1f);
-            _tWhite = Rounded(Color.white, Color.white, 6, 0f);
-
-            _sBg = Make(_tBg, 14);
-            _sPanel = Make(_tPanel, 10);
-            _sCard = Make(_tCard, 8);
-            _sCardActive = Make(_tCardActive, 8);
-            _sBar = Make(_tBar, 6);
-
-            _sBtn = Make(_tBtn, 8);
-            _sBtn.hover.background = _tBtnHover;
-            _sBtn.active.background = _tBtnDown;
-            _sBtn.alignment = TextAnchor.MiddleCenter;
-            _sBtn.fontStyle = FontStyle.Bold;
-            _sBtn.fontSize = 13;
-            _sBtn.normal.textColor = _sBtn.hover.textColor = _sBtn.active.textColor = Color.white;
-
-            _sBtnTake = Make(_tBtnTake, 8);
-            _sBtnTake.hover.background = _tBtnTakeHover;
-            _sBtnTake.active.background = _tBtnDown;
-            _sBtnTake.alignment = TextAnchor.MiddleCenter;
-            _sBtnTake.fontStyle = FontStyle.Bold;
-            _sBtnTake.fontSize = 13;
-            _sBtnTake.normal.textColor = _sBtnTake.hover.textColor = _sBtnTake.active.textColor = Color.white;
-
-            _sBtnOff = Make(_tBtnOff, 8);
-            _sBtnOff.alignment = TextAnchor.MiddleCenter;
-            _sBtnOff.fontSize = 12;
-            _sBtnOff.normal.textColor = new Color(0.50f, 0.53f, 0.60f);
-
-            _sBtnClose = Make(_tBtnClose, 8);
-            _sBtnClose.hover.background = RoundedGradient(new Color(0.62f, 0.28f, 0.28f), new Color(0.36f, 0.15f, 0.15f), new Color(0.98f, 0.50f, 0.50f), 9);
-            _sBtnClose.alignment = TextAnchor.MiddleCenter;
-            _sBtnClose.fontSize = 13;
-            _sBtnClose.fontStyle = FontStyle.Bold;
-            _sBtnClose.normal.textColor = _sBtnClose.hover.textColor = new Color(1f, 0.85f, 0.85f);
-
-            _sTitle = new GUIStyle { fontSize = 18, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleLeft };
-            _sTitle.normal.textColor = new Color(0.95f, 0.93f, 0.91f);
-            try
-            {
-                Font serif = Font.CreateDynamicFontFromOSFont(new[] { "Georgia", "Cambria", "Times New Roman", "Serif" }, 24);
-                if (serif != null) _sTitle.font = serif;
-            }
-            catch (System.Exception) { }
-            _sHead = new GUIStyle { fontSize = 12, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleLeft };
-            _sHead.normal.textColor = ColDim;
-            _sLabel = new GUIStyle { fontSize = 14, alignment = TextAnchor.MiddleLeft, clipping = TextClipping.Clip };
-            _sLabel.normal.textColor = new Color(0.93f, 0.94f, 0.97f);
-            _sSmall = new GUIStyle { fontSize = 12, alignment = TextAnchor.MiddleLeft };
-            _sSmall.normal.textColor = ColDim;
-            _sRich = new GUIStyle { fontSize = 12, alignment = TextAnchor.MiddleLeft, richText = true, clipping = TextClipping.Clip };
-            _sRich.normal.textColor = ColDim;
-            _sCount = new GUIStyle { fontSize = 15, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleRight };
-            _sCount.normal.textColor = Color.white;
-        }
-
-        private static string Hex(Color c) => ColorUtility.ToHtmlStringRGB(c);
-
-        // Пересобирает кэш строк/флагов, только если изменился инвентарь, оружие или здоровье.
-        private void RefreshCache()
-        {
-            int hash = 17;
-            for (int i = 0; i < ResOrder.Length; i++) hash = hash * 31 + _inventory.GetCount(ResOrder[i]);
-            for (int i = 0; i < Slots.Length; i++)
-                hash = hash * 31 + (_equipment != null && _equipment.IsUnlocked(Slots[i].slot) ? 1 : 0);
-            hash = hash * 31 + (_equipment != null ? (int)_equipment.ActiveSlot : -1);
-            hash = hash * 31 + (_health != null ? Mathf.CeilToInt(_health.Health) : 100);
-            if (hash == _lastHash) return;
-            _lastHash = hash;
-
-            for (int i = 0; i < ResOrder.Length; i++) _resText[i] = _inventory.GetCount(ResOrder[i]).ToString();
-            float hp = _health != null ? _health.Health : 100f;
-            _hpText = Mathf.CeilToInt(hp) + " / 100";
-            _hpFill = Mathf.Clamp01(hp / 100f);
-
-            string good = Hex(ColGood), bad = Hex(ColBad);
-            foreach (Recipe r in Recipes)
-            {
-                bool all = true;
-                System.Text.StringBuilder sb = new System.Text.StringBuilder(48);
-                for (int i = 0; i < r.Costs.Length; i++)
-                {
-                    int have = _inventory.GetCount(r.Costs[i].Type);
-                    bool ok = have >= r.Costs[i].Amount;
-                    all &= ok;
-                    if (i > 0) sb.Append("   ");
-                    sb.Append("<color=#").Append(ok ? good : bad).Append('>')
-                      .Append(ResourceNames.GetRu(r.Costs[i].Type)).Append(' ').Append(r.Costs[i].Amount)
-                      .Append("</color>");
-                }
-
-                r.CostText = sb.ToString();
-                r.Done = r.IsWeapon && _equipment != null && _equipment.IsUnlocked(r.Slot);
-                r.CanCraft = all && !r.Done;
+                int slot = _input.SlotPressed;
+                if (slot >= 0 && slot <= (int)PlayerEquipment.ToolSlot.Bow && _equipment.IsUnlocked((PlayerEquipment.ToolSlot)slot))
+                    _equipment.SelectSlot((PlayerEquipment.ToolSlot)slot);
             }
         }
+
+        private void SetOpen(bool open)
+        {
+            _isOpen = open;
+            IsAnyOpen = open;
+            PlayerActionBlock.Blocked = open;
+            FirstPersonCamera.SetCursorLocked(!open);
+            FirstPersonCamera cam = GetComponentInChildren<FirstPersonCamera>(true);
+            if (cam != null) cam.LookEnabled = !open;
+        }
+
+        private static bool MatchesTab(ResourceType t, InvTab tab)
+        {
+            switch (tab)
+            {
+                case InvTab.Resources: return t == ResourceType.Wood || t == ResourceType.Stone || t == ResourceType.Metal || t == ResourceType.Planks || t == ResourceType.Cloth;
+                case InvTab.Medicine: return t == ResourceType.Medicine;
+                case InvTab.Ammo: return t == ResourceType.Ammo || t == ResourceType.Arrows;
+                case InvTab.Other: return t == ResourceType.Fuel || t == ResourceType.Battery;
+                default: return true;
+            }
+        }
+
+        private static string ItemName(ResourceType t) => t switch
+        {
+            ResourceType.Wood => "Дерево",
+            ResourceType.Stone => "Камень",
+            ResourceType.Metal => "Металл",
+            ResourceType.Planks => "Доски",
+            ResourceType.Cloth => "Ткань",
+            ResourceType.Fuel => "Топливо",
+            ResourceType.Medicine => "Аптечка",
+            ResourceType.Battery => "Батарейка",
+            ResourceType.Ammo => "Патроны",
+            ResourceType.Arrows => "Стрелы",
+            _ => t.ToString()
+        };
+
+        private static string ItemDescription(ResourceType t) => t switch
+        {
+            ResourceType.Wood => "Основной строительный ресурс. Используется для создания построек, досок, стрел и костра.",
+            ResourceType.Stone => "Прочный природный камень. Нужен для создания патронов, стрел и укрепления лагеря.",
+            ResourceType.Metal => "Металлолом и детали. Необходим для сборки огнестрельного оружия, патронов и батареек.",
+            ResourceType.Planks => "Обработанные доски. Применяются для строительства стен, баррикад и ремонта.",
+            ResourceType.Cloth => "Чистая ткань. Используется для перевязки ран, создания бинтов и тетивы лука.",
+            ResourceType.Fuel => "Канистра с топливом для заправки автомобилей и генераторов.",
+            ResourceType.Medicine => "Медицинский набор. Восстанавливает здоровье при использовании в крафте.",
+            ResourceType.Battery => "Элемент питания для электроники и освещения.",
+            ResourceType.Ammo => "Боеприпасы для пистолета и винтовки.",
+            ResourceType.Arrows => "Охотничьи стрелы для бесшумной стрельбы из лука.",
+            _ => "Полезный предмет выживания."
+        };
+
+        private static Color ItemAccentColor(ResourceType t) => t switch
+        {
+            ResourceType.Wood => new Color(0.62f, 0.40f, 0.22f),
+            ResourceType.Stone => new Color(0.56f, 0.58f, 0.62f),
+            ResourceType.Metal => new Color(0.66f, 0.72f, 0.78f),
+            ResourceType.Planks => new Color(0.76f, 0.56f, 0.34f),
+            ResourceType.Cloth => new Color(0.78f, 0.74f, 0.64f),
+            ResourceType.Fuel => new Color(0.78f, 0.22f, 0.18f),
+            ResourceType.Medicine => new Color(0.86f, 0.26f, 0.30f),
+            ResourceType.Battery => new Color(0.86f, 0.72f, 0.22f),
+            ResourceType.Ammo => new Color(0.82f, 0.66f, 0.28f),
+            ResourceType.Arrows => new Color(0.68f, 0.54f, 0.36f),
+            _ => Color.gray
+        };
 
         private void OnGUI()
         {
-            if (!IsOwner || !_isOpen || _inventory == null) return;
+            if (!_isOpen || !IsOwner || _inventory == null) return;
             EnsureStyles();
-            RefreshCache();
 
-            float s = Mathf.Clamp(Mathf.Min(Screen.width / 940f, Screen.height / 700f), 0.7f, 1.4f);
-            Matrix4x4 oldMatrix = GUI.matrix;
-            GUI.matrix = Matrix4x4.TRS(Vector3.zero, Quaternion.identity, new Vector3(s, s, 1f));
-            float vw = Screen.width / s, vh = Screen.height / s;
+            float scale = Mathf.Clamp(Screen.height / 900f, 0.85f, 2.2f);
+            float vw = Screen.width / scale;
+            float vh = Screen.height / scale;
 
-            float w = Mathf.Min(900f, vw - 24f);
-            float h = Mathf.Min(660f, vh - 24f);
+            Matrix4x4 prevMatrix = GUI.matrix;
+            Color prevColor = GUI.color;
+            GUI.matrix = Matrix4x4.Scale(new Vector3(scale, scale, 1f));
+            GUI.color = Color.white;
+
+            GUI.DrawTexture(new Rect(0f, 0f, vw, vh), _dimTex);
+
+            float w = Mathf.Min(860f, vw - 40f);
+            float h = Mathf.Min(540f, vh - 40f);
             float x = (vw - w) * 0.5f;
             float y = (vh - h) * 0.5f;
-            GUI.Box(new Rect(x, y, w, h), GUIContent.none, _sBg);
 
-            // ---- Шапка
-            CharacterAppearance app = CharacterProfileStore.Current;
-            string charName = app.PlayerName.IsEmpty ? "Выживший" : app.PlayerName.ToString();
-            GUI.Label(new Rect(x + 22f, y + 12f, 300f, 28f), "ИНВЕНТАРЬ И КРАФТ", _sTitle);
-            Color prevLine = GUI.color;
-            GUI.color = new Color(0.68f, 0.16f, 0.19f, 0.75f);
-            GUI.DrawTexture(new Rect(x + 22f, y + 58f, w - 44f, 1.5f), _tWhite);
-            GUI.color = prevLine;
-            GUI.Label(new Rect(x + 22f, y + 38f, 320f, 18f), charName, _sSmall);
+            GUI.Box(new Rect(x, y, w, h), GUIContent.none, _panelStyle);
 
-            float barX = x + w - 380f;
-            GUI.Label(new Rect(barX, y + 14f, 60f, 20f), "Здоровье", _sSmall);
-            GUI.Box(new Rect(barX + 64f, y + 17f, 150f, 14f), GUIContent.none, _sBar);
-            Color old = GUI.color;
-            GUI.color = Color.Lerp(ColBad, ColGood, _hpFill);
-            if (_hpFill > 0.02f) GUI.DrawTexture(new Rect(barX + 65f, y + 18f, 148f * _hpFill, 12f), _tWhite);
-            GUI.color = old;
-            GUI.Label(new Rect(barX + 220f, y + 14f, 70f, 20f), _hpText, _sSmall);
-            if (GUI.Button(new Rect(x + w - 104f, y + 12f, 86f, 28f), "Закрыть", _sBtnClose)) SetOpen(false);
-
-            // ---- Левая колонка
-            float colTop = y + 66f;
-            float leftW = 340f;
-            float leftX = x + 16f;
-            float resH = 28f + 5 * 42f + 10f;
-            GUI.Box(new Rect(leftX, colTop, leftW, resH), GUIContent.none, _sPanel);
-            GUI.Label(new Rect(leftX + 14f, colTop + 6f, 200f, 20f), "РЕСУРСЫ", _sHead);
-            for (int i = 0; i < ResOrder.Length; i++)
+            // Заголовок и крестик закрытия
+            GUI.Label(new Rect(x + 24f, y + 16f, 260f, 32f), "ИНВЕНТАРЬ", _titleStyle);
+            if (GUI.Button(new Rect(x + w - 48f, y + 14f, 32f, 32f), "✕", _btnStyle))
             {
-                float rx = leftX + 10f + (i % 2) * 162f;
-                float ry = colTop + 28f + (i / 2) * 42f;
-                GUI.Box(new Rect(rx, ry, 156f, 36f), GUIContent.none, _sCard);
-                GUI.color = ResColors[i];
-                GUI.DrawTexture(new Rect(rx + 8f, ry + 9f, 18f, 18f), _tWhite);
-                GUI.color = old;
-                GUI.Label(new Rect(rx + 33f, ry + 8f, 80f, 20f), ResourceNames.GetRu(ResOrder[i]), _sLabel);
-                GUI.Label(new Rect(rx + 90f, ry + 8f, 56f, 20f), _resText[i], _sCount);
+                SetOpen(false);
             }
 
-            float eqY = colTop + resH + 10f;
-            float eqH = Mathf.Max(120f, y + h - 16f - eqY);
-            GUI.Box(new Rect(leftX, eqY, leftW, eqH), GUIContent.none, _sPanel);
-            GUI.Label(new Rect(leftX + 14f, eqY + 6f, 260f, 20f), "ЭКИПИРОВКА  (клавиши 1-7)", _sHead);
-            float rowH = Mathf.Min(38f, (eqH - 34f) / Slots.Length);
-            for (int i = 0; i < Slots.Length; i++)
+            // Вкладки категорий (Все, Ресурсы, Медицина, Боеприпасы, Прочее, Крафт)
+            float tabY = y + 58f;
+            float tabX = x + 24f;
+            DrawTab(ref tabX, tabY, 82f, "Все", InvTab.All);
+            DrawTab(ref tabX, tabY, 106f, "Ресурсы", InvTab.Resources);
+            DrawTab(ref tabX, tabY, 110f, "Медицина", InvTab.Medicine);
+            DrawTab(ref tabX, tabY, 124f, "Боеприпасы", InvTab.Ammo);
+            DrawTab(ref tabX, tabY, 94f, "Прочее", InvTab.Other);
+            DrawTab(ref tabX, tabY, 108f, "Крафт", InvTab.Craft);
+
+            float contentY = tabY + 46f;
+            float contentH = h - 150f;
+
+            if (_tab == InvTab.Craft)
             {
-                float sy = eqY + 28f + i * rowH;
-                bool unlocked = _equipment == null || _equipment.IsUnlocked(Slots[i].slot);
-                bool active = _equipment != null && _equipment.ActiveSlot == Slots[i].slot;
-                Rect row = new Rect(leftX + 10f, sy, leftW - 20f, rowH - 4f);
-                GUI.Box(row, GUIContent.none, active ? _sCardActive : _sCard);
-                GUI.Label(new Rect(row.x + 12f, row.y, 170f, row.height), Slots[i].label, _sLabel);
-                Rect btn = new Rect(row.xMax - 104f, row.y + 3f, 96f, row.height - 6f);
-                if (active) GUI.Label(btn, "В руках", _sBtnOff);
-                else if (unlocked && _equipment != null)
+                DrawCraftView(new Rect(x + 24f, contentY, w - 48f, contentH));
+            }
+            else
+            {
+                DrawInventoryGridAndDetails(x + 24f, contentY, w - 48f, contentH);
+            }
+
+            // Нижняя строка подсказок
+            int totalItems = 0;
+            foreach (ResourceType rt in ResOrder) totalItems += _inventory.GetCount(rt);
+            GUI.Label(new Rect(x + 24f, y + h - 34f, 180f, 22f), $"Вес: {totalItems} / 100", _hintStyle);
+            GUI.Label(new Rect(x + w - 410f, y + h - 34f, 386f, 22f),
+                "ЛКМ Выбрать   |   1-7 Оружие   |   Tab / Esc Закрыть", _hintStyle);
+
+            GUI.matrix = prevMatrix;
+            GUI.color = prevColor;
+        }
+
+        private void DrawTab(ref float x, float y, float width, string label, InvTab tab)
+        {
+            if (GUI.Button(new Rect(x, y, width, 34f), label, _tab == tab ? _tabActStyle : _tabStyle))
+            {
+                _tab = tab;
+            }
+            x += width + 8f;
+        }
+
+        private void DrawInventoryGridAndDetails(float gx, float gy, float totalW, float totalH)
+        {
+            const int cols = 6;
+            const int rows = 3;
+            const float cell = 78f;
+            const float gap = 8f;
+
+            List<ResourceType> visible = new();
+            foreach (ResourceType rt in ResOrder)
+            {
+                if (!MatchesTab(rt, _tab)) continue;
+                if (_inventory.GetCount(rt) > 0 || _tab != InvTab.All) visible.Add(rt);
+            }
+            // Если всё пусто, показываем хотя бы базовые
+            if (visible.Count == 0 && _tab == InvTab.All)
+            {
+                foreach (ResourceType rt in ResOrder) visible.Add(rt);
+            }
+
+            for (int r = 0; r < rows; r++)
+            {
+                for (int c = 0; c < cols; c++)
                 {
-                    if (GUI.Button(btn, "Взять", _sBtnTake)) _equipment.SelectSlot(Slots[i].slot);
+                    int idx = r * cols + c;
+                    Rect cellRect = new Rect(gx + c * (cell + gap), gy + r * (cell + gap), cell, cell);
+                    bool hasItem = idx < visible.Count;
+                    bool isSel = hasItem && visible[idx] == _selectedItem;
+
+                    if (GUI.Button(cellRect, GUIContent.none, isSel ? _slotSelStyle : _slotStyle) && hasItem)
+                    {
+                        _selectedItem = visible[idx];
+                    }
+
+                    if (hasItem)
+                    {
+                        ResourceType rt = visible[idx];
+                        int count = _inventory.GetCount(rt);
+                        if (_icons.TryGetValue(rt, out Texture2D icon) && icon != null)
+                        {
+                            GUI.DrawTexture(new Rect(cellRect.x + 12f, cellRect.y + 10f, cell - 24f, cell - 24f), icon, ScaleMode.ScaleToFit);
+                        }
+                        GUI.Label(new Rect(cellRect.x + 6f, cellRect.yMax - 22f, cell - 12f, 18f), count.ToString(), _countStyle);
+                    }
                 }
-                else GUI.Label(btn, "Не создано", _sBtnOff);
             }
 
-            // ---- Правая колонка: рецепты со скроллом
-            float rightX = leftX + leftW + 12f;
-            float rightW = x + w - 16f - rightX;
-            float rightH = y + h - 24f - colTop;
-            GUI.Box(new Rect(rightX, colTop, rightW, rightH), GUIContent.none, _sPanel);
-            GUI.Label(new Rect(rightX + 14f, colTop + 6f, 240f, 20f), "КРАФТ", _sHead);
+            // Правая карточка подробностей выбранного предмета
+            float gridW = cols * cell + (cols - 1) * gap;
+            float detX = gx + gridW + 18f;
+            float detW = totalW - gridW - 18f;
+            Rect detRect = new Rect(detX, gy, detW, rows * cell + (rows - 1) * gap);
+            GUI.Box(detRect, GUIContent.none, _cardStyle);
 
-            const float cardH = 52f, headH = 26f;
-            float contentH = 6f;
-            string lastGroup = null;
+            if (_icons.TryGetValue(_selectedItem, out Texture2D bigIcon) && bigIcon != null)
+            {
+                GUI.DrawTexture(new Rect(detRect.x + (detW - 88f) * 0.5f, detRect.y + 18f, 88f, 88f), bigIcon, ScaleMode.ScaleToFit);
+            }
+
+            GUI.Label(new Rect(detRect.x + 14f, detRect.y + 114f, detW - 28f, 26f), ItemName(_selectedItem), _itemTitleStyle);
+            GUI.Label(new Rect(detRect.x + 16f, detRect.y + 144f, detW - 32f, 68f), ItemDescription(_selectedItem), _descStyle);
+
+            int selCount = _inventory.GetCount(_selectedItem);
+            GUI.Label(new Rect(detRect.x + 16f, detRect.yMax - 42f, detW - 32f, 28f),
+                $"В наличии: {selCount}   •   Можно использовать в крафте", _hintStyle);
+        }
+
+        private void DrawCraftView(Rect area)
+        {
+            RefreshRecipeStates();
+            float innerW = area.width - 18f;
+            float totalH = 0f;
+            string lg = null;
             foreach (Recipe r in Recipes)
             {
-                if (r.Group != lastGroup) { contentH += headH; lastGroup = r.Group; }
-                contentH += cardH + 4f;
+                if (r.Group != lg) { totalH += 26f; lg = r.Group; }
+                totalH += 56f;
             }
 
-            Rect view = new Rect(rightX + 6f, colTop + 28f, rightW - 12f, rightH - 36f);
-            bool needScroll = contentH > view.height;
-            float innerW = view.width - (needScroll ? 16f : 0f);
-            _scroll = GUI.BeginScrollView(view, _scroll, new Rect(0f, 0f, innerW, contentH));
-            float cy = 4f;
-            lastGroup = null;
+            _craftScroll = GUI.BeginScrollView(area, _craftScroll, new Rect(0f, 0f, innerW, totalH + 8f));
+            float cy = 0f;
+            string lastGroup = null;
             foreach (Recipe r in Recipes)
             {
                 if (r.Group != lastGroup)
                 {
-                    GUI.Label(new Rect(8f, cy, 200f, headH), r.Group, _sHead);
-                    cy += headH;
+                    GUI.Label(new Rect(6f, cy, 240f, 24f), r.Group, _headStyle);
+                    cy += 26f;
                     lastGroup = r.Group;
                 }
 
-                Rect card = new Rect(4f, cy, innerW - 8f, cardH);
-                GUI.Box(card, GUIContent.none, r.Done ? _sCardActive : _sCard);
-                string title = r.IsWeapon ? r.Title : r.Title + "  <size=12><color=#9AA3B5>" + r.Effect + "</color></size>";
-                GUI.Label(new Rect(card.x + 12f, card.y + 5f, card.width - 140f, 22f), title, _sRichTitle());
-                GUI.Label(new Rect(card.x + 12f, card.y + 27f, card.width - 140f, 20f), r.CostText, _sRich);
+                Rect card = new Rect(2f, cy, innerW - 4f, 50f);
+                GUI.Box(card, GUIContent.none, _cardStyle);
+                string title = r.IsWeapon ? r.Title : $"{r.Title}  <size=12><color=#A4A8B4>{r.Effect}</color></size>";
+                GUI.Label(new Rect(card.x + 14f, card.y + 5f, card.width - 140f, 20f), title, _richStyle);
+                GUI.Label(new Rect(card.x + 14f, card.y + 26f, card.width - 140f, 18f), r.CostText, _richStyle);
 
-                Rect btn = new Rect(card.xMax - 112f, card.y + 9f, 100f, 34f);
-                if (r.Done) GUI.Label(btn, "Создано", _sBtnOff);
-                else if (r.CanCraft) { if (GUI.Button(btn, "Создать", _sBtn)) CraftServerRpc(r.Id); }
-                else GUI.Label(btn, "Не хватает", _sBtnOff);
-                cy += cardH + 4f;
+                Rect btn = new Rect(card.xMax - 118f, card.y + 8f, 106f, 34f);
+                if (r.Done) GUI.Label(btn, "Создано", _btnOffStyle);
+                else if (r.CanCraft) { if (GUI.Button(btn, "Создать", _btnRedStyle)) CraftServerRpc(r.Id); }
+                else GUI.Label(btn, "Не хватает", _btnOffStyle);
+
+                cy += 56f;
             }
-
             GUI.EndScrollView();
-
-            GUI.Label(new Rect(rightX + 14f, y + h - 14f, rightW - 20f, 16f),
-                "Tab / I / Esc - закрыть     1-7 - взять оружие     колесо мыши - прокрутка", _sSmall);
-            GUI.matrix = oldMatrix;
         }
 
-        private static GUIStyle _sRichTitleStyle;
-        private static GUIStyle _sRichTitle()
+        private void RefreshRecipeStates()
         {
-            if (_sRichTitleStyle == null || _sLabel == null)
+            foreach (Recipe r in Recipes)
             {
-                _sRichTitleStyle = new GUIStyle(_sLabel) { richText = true, fontStyle = FontStyle.Bold };
-                _sRichTitleStyle.normal.textColor = new Color(0.95f, 0.96f, 0.98f);
+                r.Done = r.IsWeapon && _equipment != null && _equipment.IsUnlocked(r.Slot);
+                bool ok = !r.Done;
+                string txt = string.Empty;
+                for (int i = 0; i < r.Costs.Length; i++)
+                {
+                    Cost c = r.Costs[i];
+                    int have = _inventory.GetCount(c.Type);
+                    if (have < c.Amount) ok = false;
+                    string col = have >= c.Amount ? "#8CD49B" : "#E07070";
+                    if (i > 0) txt += "   ";
+                    txt += $"<color={col}>{ItemName(c.Type)}: {have}/{c.Amount}</color>";
+                }
+                r.CanCraft = ok;
+                r.CostText = txt;
+            }
+        }
+
+        private void EnsureStyles()
+        {
+            if (_stylesReady) return;
+            _stylesReady = true;
+
+            _dimTex = MakeSolid(new Color(0.22f, 0.24f, 0.27f, 0.80f));
+            Texture2D panelTex = MakeRounded(64, 64, 10, new Color(0.08f, 0.085f, 0.10f, 0.96f), new Color(0.05f, 0.055f, 0.065f, 0.98f), new Color(1f, 1f, 1f, 0.14f));
+            Texture2D cardTex = MakeRounded(48, 48, 8, new Color(0.11f, 0.115f, 0.135f, 0.94f), new Color(0.08f, 0.085f, 0.10f, 0.96f), new Color(1f, 1f, 1f, 0.10f));
+            Texture2D slotTex = MakeRounded(48, 48, 8, new Color(0.12f, 0.125f, 0.145f, 0.92f), new Color(0.08f, 0.085f, 0.10f, 0.94f), new Color(1f, 1f, 1f, 0.12f));
+            Texture2D slotSel = MakeRounded(48, 48, 8, new Color(0.24f, 0.10f, 0.11f, 0.96f), new Color(0.15f, 0.06f, 0.07f, 0.98f), new Color(0.88f, 0.22f, 0.24f, 0.95f));
+            Texture2D tabN = MakeRounded(48, 34, 6, new Color(0.13f, 0.135f, 0.16f, 0.90f), new Color(0.09f, 0.095f, 0.11f, 0.94f), new Color(1f, 1f, 1f, 0.12f));
+            Texture2D tabA = MakeRounded(48, 34, 6, new Color(0.68f, 0.12f, 0.14f, 0.96f), new Color(0.46f, 0.07f, 0.09f, 0.98f), new Color(0.96f, 0.34f, 0.34f, 0.78f));
+            Texture2D offTex = MakeRounded(48, 34, 6, new Color(0.10f, 0.10f, 0.12f, 0.70f), new Color(0.08f, 0.08f, 0.10f, 0.75f), new Color(1f, 1f, 1f, 0.08f));
+
+            RectOffset b8 = new RectOffset(8, 8, 8, 8);
+            _panelStyle = new GUIStyle { normal = { background = panelTex }, border = new RectOffset(10, 10, 10, 10) };
+            _cardStyle = new GUIStyle { normal = { background = cardTex }, border = b8 };
+            _slotStyle = new GUIStyle(GUI.skin.button) { normal = { background = slotTex }, hover = { background = slotSel }, active = { background = slotSel }, border = b8 };
+            _slotSelStyle = new GUIStyle(GUI.skin.button) { normal = { background = slotSel }, hover = { background = slotSel }, active = { background = slotSel }, border = b8 };
+
+            _tabStyle = new GUIStyle(GUI.skin.button)
+            {
+                fontSize = 13, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter,
+                normal = { background = tabN, textColor = new Color(0.84f, 0.86f, 0.90f) },
+                hover = { background = tabA, textColor = Color.white },
+                border = new RectOffset(6, 6, 6, 6)
+            };
+            _tabActStyle = new GUIStyle(_tabStyle)
+            {
+                normal = { background = tabA, textColor = Color.white }
+            };
+            _btnStyle = new GUIStyle(_tabStyle);
+            _btnRedStyle = new GUIStyle(_tabActStyle);
+            _btnOffStyle = new GUIStyle(GUI.skin.label)
+            {
+                fontSize = 12, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter,
+                normal = { background = offTex, textColor = new Color(0.55f, 0.56f, 0.60f) },
+                border = new RectOffset(6, 6, 6, 6)
+            };
+
+            _titleStyle = new GUIStyle(GUI.skin.label) { fontSize = 22, fontStyle = FontStyle.Bold };
+            _titleStyle.normal.textColor = new Color(0.95f, 0.95f, 0.97f);
+
+            _itemTitleStyle = new GUIStyle(GUI.skin.label) { fontSize = 18, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter };
+            _itemTitleStyle.normal.textColor = Color.white;
+
+            _descStyle = new GUIStyle(GUI.skin.label) { fontSize = 12, wordWrap = true, alignment = TextAnchor.UpperCenter };
+            _descStyle.normal.textColor = new Color(0.76f, 0.78f, 0.84f);
+
+            _hintStyle = new GUIStyle(GUI.skin.label) { fontSize = 12, alignment = TextAnchor.MiddleLeft };
+            _hintStyle.normal.textColor = new Color(0.68f, 0.70f, 0.76f);
+
+            _countStyle = new GUIStyle(GUI.skin.label) { fontSize = 13, fontStyle = FontStyle.Bold, alignment = TextAnchor.LowerRight };
+            _countStyle.normal.textColor = Color.white;
+
+            _headStyle = new GUIStyle(GUI.skin.label) { fontSize = 12, fontStyle = FontStyle.Bold };
+            _headStyle.normal.textColor = new Color(0.88f, 0.28f, 0.30f);
+
+            _richStyle = new GUIStyle(GUI.skin.label) { fontSize = 13, richText = true };
+            _richStyle.normal.textColor = new Color(0.94f, 0.95f, 0.98f);
+
+            foreach (ResourceType rt in ResOrder)
+            {
+                _icons[rt] = MakeItemIcon(rt, ItemAccentColor(rt));
+            }
+        }
+
+        private Texture2D MakeSolid(Color c)
+        {
+            Texture2D t = new Texture2D(1, 1, TextureFormat.RGBA32, false) { hideFlags = HideFlags.HideAndDontSave };
+            t.SetPixel(0, 0, c);
+            t.Apply();
+            _textures.Add(t);
+            return t;
+        }
+
+        private Texture2D MakeRounded(int w, int h, int r, Color top, Color bot, Color border)
+        {
+            Texture2D t = new Texture2D(w, h, TextureFormat.RGBA32, false) { wrapMode = TextureWrapMode.Clamp, filterMode = FilterMode.Bilinear, hideFlags = HideFlags.HideAndDontSave };
+            Color clear = new Color(0f, 0f, 0f, 0f);
+            for (int y = 0; y < h; y++)
+            {
+                Color fill = Color.Lerp(bot, top, y / (float)(h - 1));
+                for (int x = 0; x < w; x++)
+                {
+                    float dx = Mathf.Max(0f, Mathf.Max(r - x, x - (w - 1 - r)));
+                    float dy = Mathf.Max(0f, Mathf.Max(r - y, y - (h - 1 - r)));
+                    float dist = Mathf.Sqrt(dx * dx + dy * dy);
+                    if (dist > r + 0.5f) { t.SetPixel(x, y, clear); continue; }
+                    bool edge = dist > r - 1.15f || x == 0 || x == w - 1 || y == 0 || y == h - 1;
+                    Color c = edge ? border : fill;
+                    c.a *= Mathf.Clamp01(r + 0.5f - dist);
+                    t.SetPixel(x, y, c);
+                }
+            }
+            t.Apply();
+            _textures.Add(t);
+            return t;
+        }
+
+        private Texture2D MakeItemIcon(ResourceType rt, Color accent)
+        {
+            const int s = 64;
+            Texture2D t = new Texture2D(s, s, TextureFormat.RGBA32, false) { filterMode = FilterMode.Bilinear, hideFlags = HideFlags.HideAndDontSave };
+            Color[] px = new Color[s * s];
+            Color clear = new Color(0f, 0f, 0f, 0f);
+            for (int i = 0; i < px.Length; i++) px[i] = clear;
+
+            void Plot(int x, int y, Color c)
+            {
+                if (x < 0 || x >= s || y < 0 || y >= s || c.a <= 0.001f) return;
+                int idx = y * s + x;
+                Color d = px[idx];
+                float a = c.a;
+                float outA = a + d.a * (1f - a);
+                if (outA <= 0.001f) return;
+                float k = a / outA;
+                px[idx] = new Color(Mathf.Lerp(d.r, c.r, k), Mathf.Lerp(d.g, c.g, k), Mathf.Lerp(d.b, c.b, k), outA);
             }
 
-            return _sRichTitleStyle;
+            void FillRect(float x0, float y0, float w, float h, Color c)
+            {
+                int ix0 = Mathf.Max(0, Mathf.FloorToInt(x0));
+                int iy0 = Mathf.Max(0, Mathf.FloorToInt(y0));
+                int ix1 = Mathf.Min(s - 1, Mathf.CeilToInt(x0 + w));
+                int iy1 = Mathf.Min(s - 1, Mathf.CeilToInt(y0 + h));
+                for (int y = iy0; y <= iy1; y++)
+                    for (int x = ix0; x <= ix1; x++)
+                        Plot(x, y, c);
+            }
+
+            void FillCircle(float cx, float cy, float r, Color c)
+            {
+                int ix0 = Mathf.Max(0, Mathf.FloorToInt(cx - r - 1));
+                int iy0 = Mathf.Max(0, Mathf.FloorToInt(cy - r - 1));
+                int ix1 = Mathf.Min(s - 1, Mathf.CeilToInt(cx + r + 1));
+                int iy1 = Mathf.Min(s - 1, Mathf.CeilToInt(cy + r + 1));
+                for (int y = iy0; y <= iy1; y++)
+                {
+                    for (int x = ix0; x <= ix1; x++)
+                    {
+                        float d = Mathf.Sqrt((x - cx) * (x - cx) + (y - cy) * (y - cy));
+                        if (d <= r + 0.5f)
+                        {
+                            Color cc = c;
+                            cc.a *= Mathf.Clamp01(r + 0.5f - d);
+                            Plot(x, y, cc);
+                        }
+                    }
+                }
+            }
+
+            void DrawLine(float x0, float y0, float x1, float y1, float thick, Color c)
+            {
+                int steps = Mathf.Max(8, Mathf.CeilToInt(Vector2.Distance(new Vector2(x0, y0), new Vector2(x1, y1)) * 2f));
+                for (int i = 0; i <= steps; i++)
+                {
+                    float u = i / (float)steps;
+                    FillCircle(Mathf.Lerp(x0, x1, u), Mathf.Lerp(y0, y1, u), thick * 0.5f, c);
+                }
+            }
+
+            Color outline = new Color(0.06f, 0.06f, 0.08f, 0.92f);
+
+            switch (rt)
+            {
+                case ResourceType.Wood:
+                {
+                    // Связка из 3 брёвен со светлыми спилами
+                    Color bark = new Color(0.45f, 0.27f, 0.14f, 1f);
+                    Color barkHi = new Color(0.58f, 0.36f, 0.19f, 1f);
+                    Color cut = new Color(0.84f, 0.67f, 0.44f, 1f);
+                    Color ring = new Color(0.55f, 0.36f, 0.18f, 1f);
+                    // Нижние два бревна и верхнее
+                    DrawLine(12, 22, 46, 22, 14f, outline);
+                    DrawLine(12, 22, 46, 22, 11f, bark);
+                    DrawLine(16, 34, 50, 34, 14f, outline);
+                    DrawLine(16, 34, 50, 34, 11f, barkHi);
+                    DrawLine(14, 44, 46, 44, 13f, outline);
+                    DrawLine(14, 44, 46, 44, 10f, bark);
+                    // Спилы
+                    FillCircle(48, 22, 5.5f, cut); FillCircle(48, 22, 2.2f, ring);
+                    FillCircle(52, 34, 5.5f, cut); FillCircle(52, 34, 2.2f, ring);
+                    FillCircle(48, 44, 5.0f, cut); FillCircle(48, 44, 2.0f, ring);
+                    break;
+                }
+                case ResourceType.Stone:
+                {
+                    // Гранёный серый камень
+                    Color baseC = new Color(0.48f, 0.50f, 0.54f, 1f);
+                    Color hiC = new Color(0.72f, 0.74f, 0.78f, 1f);
+                    Color shC = new Color(0.28f, 0.30f, 0.34f, 1f);
+                    FillCircle(32, 31, 20f, outline);
+                    FillCircle(32, 31, 18f, baseC);
+                    FillCircle(25, 38, 12f, hiC);
+                    FillCircle(39, 24, 12f, shC);
+                    FillCircle(31, 33, 13f, baseC);
+                    DrawLine(20, 34, 30, 44, 3.5f, hiC);
+                    DrawLine(34, 20, 44, 28, 3.5f, shC);
+                    break;
+                }
+                case ResourceType.Metal:
+                {
+                    // Металлическая пластина / шестерня с заклёпками
+                    Color steel = new Color(0.62f, 0.68f, 0.75f, 1f);
+                    Color steelHi = new Color(0.84f, 0.89f, 0.94f, 1f);
+                    Color steelDark = new Color(0.32f, 0.36f, 0.42f, 1f);
+                    FillRect(12, 16, 40, 32, outline);
+                    FillRect(14, 18, 36, 28, steel);
+                    FillRect(14, 36, 36, 10, steelHi);
+                    FillRect(14, 18, 36, 6, steelDark);
+                    // Заклёпки
+                    FillCircle(19, 23, 2.5f, steelDark); FillCircle(45, 23, 2.5f, steelDark);
+                    FillCircle(19, 41, 2.5f, steelDark); FillCircle(45, 41, 2.5f, steelDark);
+                    // Диагональный блик
+                    DrawLine(20, 22, 42, 42, 4f, new Color(1f, 1f, 1f, 0.35f));
+                    break;
+                }
+                case ResourceType.Planks:
+                {
+                    // Две перекрещённые/сложенные доски с гвоздями
+                    Color wood = new Color(0.76f, 0.55f, 0.32f, 1f);
+                    Color wood2 = new Color(0.64f, 0.44f, 0.24f, 1f);
+                    Color nail = new Color(0.22f, 0.24f, 0.28f, 1f);
+                    DrawLine(10, 20, 54, 28, 12f, outline);
+                    DrawLine(10, 20, 54, 28, 9.5f, wood2);
+                    DrawLine(10, 38, 54, 44, 12f, outline);
+                    DrawLine(10, 38, 54, 44, 9.5f, wood);
+                    FillCircle(16, 21, 2f, nail); FillCircle(48, 27, 2f, nail);
+                    FillCircle(16, 39, 2f, nail); FillCircle(48, 43, 2f, nail);
+                    break;
+                }
+                case ResourceType.Cloth:
+                {
+                    // Рулон бинта / сложенная ткань
+                    Color cloth = new Color(0.86f, 0.82f, 0.72f, 1f);
+                    Color fold = new Color(0.66f, 0.61f, 0.52f, 1f);
+                    FillRect(14, 16, 32, 32, outline);
+                    FillRect(16, 18, 28, 28, cloth);
+                    FillCircle(44, 32, 14f, outline);
+                    FillCircle(44, 32, 12f, cloth);
+                    FillCircle(44, 32, 6f, fold);
+                    FillCircle(44, 32, 3f, new Color(0.42f, 0.38f, 0.32f, 1f));
+                    DrawLine(18, 24, 36, 24, 2f, fold);
+                    DrawLine(18, 32, 36, 32, 2f, fold);
+                    DrawLine(18, 40, 36, 40, 2f, fold);
+                    break;
+                }
+                case ResourceType.Fuel:
+                {
+                    // Красная металлическая канистра с ручкой и горлышком
+                    Color red = new Color(0.82f, 0.17f, 0.15f, 1f);
+                    Color redDark = new Color(0.55f, 0.10f, 0.09f, 1f);
+                    Color cap = new Color(0.88f, 0.72f, 0.22f, 1f);
+                    // Горлышко слева сверху
+                    FillRect(16, 46, 8, 8, outline);
+                    FillRect(17, 47, 6, 6, cap);
+                    // Ручка сверху
+                    FillRect(26, 46, 20, 6, outline);
+                    FillRect(28, 48, 16, 3, red);
+                    // Корпус
+                    FillRect(14, 10, 36, 38, outline);
+                    FillRect(16, 12, 32, 34, red);
+                    // Штампованный крест X на боку канистры
+                    DrawLine(21, 18, 43, 40, 4.5f, redDark);
+                    DrawLine(43, 18, 21, 40, 4.5f, redDark);
+                    break;
+                }
+                case ResourceType.Medicine:
+                {
+                    // Белая аптечка с ярким красным крестом и ручкой
+                    Color boxW = new Color(0.94f, 0.95f, 0.97f, 1f);
+                    Color boxSh = new Color(0.76f, 0.78f, 0.82f, 1f);
+                    Color red = new Color(0.88f, 0.14f, 0.18f, 1f);
+                    FillRect(24, 46, 16, 7, outline);
+                    FillRect(26, 48, 12, 3, boxSh);
+                    FillRect(10, 12, 44, 36, outline);
+                    FillRect(12, 14, 40, 32, boxW);
+                    FillRect(12, 14, 40, 5, boxSh);
+                    // Красный крест
+                    FillRect(28, 19, 8, 22, red);
+                    FillRect(21, 26, 22, 8, red);
+                    break;
+                }
+                case ResourceType.Battery:
+                {
+                    // Батарейка: тёмный корпус + золотой верх + знак «+»
+                    Color body = new Color(0.16f, 0.18f, 0.22f, 1f);
+                    Color gold = new Color(0.92f, 0.72f, 0.20f, 1f);
+                    Color cap = new Color(0.76f, 0.80f, 0.86f, 1f);
+                    FillRect(26, 48, 12, 6, outline);
+                    FillRect(28, 49, 8, 4, cap);
+                    FillRect(18, 10, 28, 40, outline);
+                    FillRect(20, 12, 24, 24, body);
+                    FillRect(20, 36, 24, 12, gold);
+                    // Знак +
+                    FillRect(30, 38, 4, 8, outline);
+                    FillRect(28, 40, 8, 4, outline);
+                    // Молния/полоска снизу
+                    FillRect(24, 20, 16, 4, gold);
+                    break;
+                }
+                case ResourceType.Ammo:
+                {
+                    // Три латунных патрона с медными пулями
+                    Color brass = new Color(0.86f, 0.68f, 0.26f, 1f);
+                    Color copper = new Color(0.76f, 0.42f, 0.22f, 1f);
+                    float[] xs = { 18f, 32f, 46f };
+                    for (int i = 0; i < 3; i++)
+                    {
+                        float cx = xs[i];
+                        FillRect(cx - 5f, 12f, 10f, 26f, outline);
+                        FillRect(cx - 4f, 13f, 8f, 24f, brass);
+                        FillCircle(cx, 41f, 5f, outline);
+                        FillCircle(cx, 41f, 4f, copper);
+                        FillCircle(cx, 46f, 3.2f, copper);
+                        FillRect(cx - 4.5f, 12f, 9f, 3f, new Color(0.55f, 0.42f, 0.16f, 1f));
+                    }
+                    break;
+                }
+                case ResourceType.Arrows:
+                {
+                    // Две диагональные стрелы с наконечниками и оперением
+                    Color shaft = new Color(0.72f, 0.52f, 0.30f, 1f);
+                    Color tip = new Color(0.82f, 0.86f, 0.92f, 1f);
+                    Color feath = new Color(0.86f, 0.22f, 0.22f, 1f);
+                    // Стрела 1
+                    DrawLine(14, 16, 48, 50, 5.5f, outline);
+                    DrawLine(14, 16, 48, 50, 3.2f, shaft);
+                    DrawLine(42, 50, 52, 52, 4f, tip);
+                    DrawLine(50, 42, 52, 52, 4f, tip);
+                    DrawLine(10, 20, 18, 22, 4f, feath);
+                    DrawLine(18, 12, 20, 20, 4f, feath);
+                    // Стрела 2
+                    DrawLine(22, 10, 54, 42, 5.5f, outline);
+                    DrawLine(22, 10, 54, 42, 3.2f, shaft);
+                    DrawLine(48, 42, 56, 44, 4f, tip);
+                    DrawLine(54, 34, 56, 44, 4f, tip);
+                    DrawLine(18, 14, 26, 16, 4f, feath);
+                    DrawLine(26, 6, 28, 14, 4f, feath);
+                    break;
+                }
+                default:
+                    FillCircle(32, 32, 20f, accent);
+                    break;
+            }
+
+            t.SetPixels(px);
+            t.Apply();
+            _textures.Add(t);
+            return t;
         }
 
         [ServerRpc]

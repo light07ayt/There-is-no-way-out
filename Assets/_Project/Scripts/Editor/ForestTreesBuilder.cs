@@ -27,8 +27,8 @@ namespace Ogni.EditorTools
             Texture2D barkTex = CreateBirchBarkTexture();
             Texture2D leafTex = CreateLeafClusterTexture(
                 TexturesFolder + "/Tex_BirchLeaves.png",
-                new Color(0.22f, 0.40f, 0.15f, 1f),
-                new Color(0.46f, 0.54f, 0.17f, 1f),
+                new Color(0.28f, 0.48f, 0.16f, 1f),
+                new Color(0.56f, 0.64f, 0.18f, 1f),
                 seed: 4101);
 
             Material barkMat = CreateLitMat("Mat_BirchBark", Color.white, 0.10f, barkTex, alphaClip: false);
@@ -47,8 +47,8 @@ namespace Ogni.EditorTools
 
             Texture2D leafTex = CreateLeafClusterTexture(
                 TexturesFolder + "/Tex_OakLeaves.png",
-                new Color(0.16f, 0.30f, 0.13f, 1f),
-                new Color(0.46f, 0.30f, 0.12f, 1f),
+                new Color(0.18f, 0.34f, 0.14f, 1f),
+                new Color(0.55f, 0.34f, 0.12f, 1f),
                 seed: 8821);
 
             Material barkMat = CreateLitMat("Mat_OakBark", new Color(0.26f, 0.20f, 0.15f), 0.08f, null, alphaClip: false);

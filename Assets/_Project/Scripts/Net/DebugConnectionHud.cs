@@ -24,7 +24,8 @@ namespace Ogni.Net
             JoinGame,
             Saved,
             Settings,
-            CharacterSelect
+            CharacterSelect,
+            CoopLobby
         }
 
         private enum PendingLaunchMode
@@ -78,6 +79,15 @@ namespace Ogni.Net
         private readonly List<Object> _previewAssets = new List<Object>();
         private float _previewYaw = 165f;
         private float _previewYawSmooth = 165f;
+        private float _previewZoom = 3.7f;
+        private bool _lobbyHostReady = true;
+        private int _lobbyDays = 7;
+
+        // Аудио заставки (детский смех) и фонового пианино главного меню / выбора персонажа / лобби.
+        private AudioSource _menuMusicSource;
+        private AudioSource _splashSfxSource;
+        private AudioListener _menuAudioListener;
+        private bool _splashGigglePlayed;
 
         // Кэш списка игроков в лобби.
         private PlayerAppearanceSync[] _players = new PlayerAppearanceSync[0];
@@ -192,6 +202,7 @@ namespace Ogni.Net
             }
 
             bool inSession = session != null && session.IsRunning;
+            UpdateMenuAudio(inSession);
             if (_visible && !inSession)
             {
                 HideMainCamera();
@@ -229,8 +240,9 @@ namespace Ogni.Net
                 return;
             }
 
-            if (_localHealth == null)
+            if (_localHealth == null && Time.unscaledTime >= _nextLocalHealthScan)
             {
+                _nextLocalHealthScan = Time.unscaledTime + 0.5f;
                 foreach (PlayerHealth ph in FindObjectsByType<PlayerHealth>(FindObjectsSortMode.None))
                 {
                     if (ph != null && ph.IsOwner) { _localHealth = ph; break; }
@@ -320,7 +332,6 @@ namespace Ogni.Net
             _previewRig = _previewRoot.AddComponent<PlayerAppearanceRig>();
             _previewRig.Apply(_draft);
             SetPreviewLayer(_previewRoot);
-            DisablePreviewShadows(_previewRoot);
 
             GameObject camObj = new GameObject("LobbyPreviewCamera");
             camObj.transform.position = new Vector3(0f, 1.02f, z + 3.7f);
@@ -336,23 +347,11 @@ namespace Ogni.Net
             _previewCamera.backgroundColor = new Color(0.05f, 0.055f, 0.065f);
             _previewExtras.Add(camObj);
 
-            // Симметричный студийный свет без жёстких теней (убирает затемнение одной ноги на женской модели).
-            AddPreviewLight("KeyLeft", new Vector3(-1.5f, 2.0f, z + 2.2f), new Color(1f, 0.94f, 0.86f), 5.2f, 11f);
-            AddPreviewLight("KeyRight", new Vector3(1.5f, 2.0f, z + 2.2f), new Color(1f, 0.92f, 0.84f), 5.2f, 11f);
-            AddPreviewLight("LowFillL", new Vector3(-1.3f, 0.65f, z + 2.1f), new Color(0.92f, 0.92f, 0.95f), 3.6f, 9f);
-            AddPreviewLight("LowFillR", new Vector3(1.3f, 0.65f, z + 2.1f), new Color(0.92f, 0.92f, 0.95f), 3.6f, 9f);
-            AddPreviewLight("Rim", new Vector3(0f, 2.2f, z - 2.0f), new Color(0.90f, 0.30f, 0.26f), 4.0f, 10f);
-            // Ровный мягкий фронтальный направленный свет на слое превью — убирает боковое затемнение ног.
-            GameObject dirGo = new GameObject("LobbyLight_FrontDir");
-            dirGo.layer = PreviewLayer;
-            dirGo.transform.rotation = Quaternion.Euler(12f, 180f, 0f);
-            Light dirL = dirGo.AddComponent<Light>();
-            dirL.type = LightType.Directional;
-            dirL.color = new Color(0.96f, 0.95f, 0.94f);
-            dirL.intensity = 1.15f;
-            dirL.shadows = LightShadows.None;
-            dirL.cullingMask = 1 << PreviewLayer;
-            _previewExtras.Add(dirGo);
+            // Атмосферный студийный свет для выбора персонажа.
+            AddPreviewLight("Key", new Vector3(1.2f, 2.4f, z + 1.8f), new Color(1f, 0.86f, 0.72f), 7f, 10f);
+            AddPreviewLight("Rim", new Vector3(-2.1f, 2.0f, z - 1.6f), new Color(0.85f, 0.22f, 0.20f), 4.5f, 10f);
+            AddPreviewLight("Fill", new Vector3(-2.0f, 1.1f, z + 1.4f), new Color(0.65f, 0.72f, 0.85f), 2.4f, 9f);
+            AddPreviewLight("Front", new Vector3(-0.2f, 1.3f, z + 3.2f), new Color(0.98f, 0.95f, 0.90f), 3.2f, 9f);
 
             // Постамент под ногами.
             GameObject plate = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
@@ -385,18 +384,22 @@ namespace Ogni.Net
                 }
             }
 
+            if (mouse != null)
+            {
+                float scroll = mouse.scroll.ReadValue().y;
+                if (Mathf.Abs(scroll) > 0.01f)
+                {
+                    _previewZoom = Mathf.Clamp(_previewZoom - scroll * 0.002f, 2.4f, 4.8f);
+                }
+            }
+            if (_previewCamera != null)
+            {
+                Vector3 cp = _previewCamera.transform.position;
+                cp.z = Mathf.Lerp(cp.z, -4.5f + _previewZoom, 1f - Mathf.Exp(-10f * Time.unscaledDeltaTime));
+                _previewCamera.transform.position = cp;
+            }
             _previewYawSmooth = Mathf.LerpAngle(_previewYawSmooth, _previewYaw, 1f - Mathf.Exp(-10f * Time.unscaledDeltaTime));
             _previewRoot.transform.rotation = Quaternion.Euler(0f, _previewYawSmooth, 0f);
-        }
-
-        private static void DisablePreviewShadows(GameObject root)
-        {
-            if (root == null) return;
-            foreach (Renderer r in root.GetComponentsInChildren<Renderer>(true))
-            {
-                r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-                r.receiveShadows = false;
-            }
         }
 
         private void AddPreviewLight(string name, Vector3 pos, Color color, float intensity, float range)
@@ -430,8 +433,8 @@ namespace Ogni.Net
 
         private void ApplyDraft()
         {
-            string trimmed = string.IsNullOrWhiteSpace(_playerNameInput) ? GameSettings.T("Survivor", "Выживший") : _playerNameInput.Trim();
-            if (trimmed.Length > 20) trimmed = trimmed.Substring(0, 20);
+            string fallbackChar = SquadRoster.GetSlot(_draft.ModelIndex).GetDisplayName(GameSettings.Language == GameLanguage.English);
+            string trimmed = NameProfanityFilter.SanitizeOrFallback(_playerNameInput, fallbackChar);
             _draft.PlayerName = trimmed;
             CharacterProfileStore.Current = _draft;
 
@@ -514,44 +517,27 @@ namespace Ogni.Net
                 filterMode = FilterMode.Bilinear,
                 hideFlags = HideFlags.HideAndDontSave
             };
-            Color32[] px = new Color32[w * h];
-            float invH = 1f / Mathf.Max(1, h - 1);
+            Color clear = new Color(0f, 0f, 0f, 0f);
             for (int y = 0; y < h; y++)
             {
-                float gy = y * invH;
+                float gy = y / (float)(h - 1);
                 Color fill = Color.Lerp(bot, top, gy);
-                if (gy > 0.84f) fill = Color.Lerp(fill, Color.white, (gy - 0.84f) * 2.0f * 0.08f);
-                else if (gy < 0.12f) fill = Color.Lerp(fill, Color.black, (0.12f - gy) * 2.2f * 0.30f);
-                int row = y * w;
                 for (int x = 0; x < w; x++)
                 {
                     float dx = Mathf.Max(0f, Mathf.Max(r - x, x - (w - 1 - r)));
                     float dy = Mathf.Max(0f, Mathf.Max(r - y, y - (h - 1 - r)));
                     float dist = Mathf.Sqrt(dx * dx + dy * dy);
-                    float a = Mathf.Clamp01(r + 0.5f - dist);
-                    if (a <= 0f) { px[row + x] = new Color32(0, 0, 0, 0); continue; }
+                    if (dist > r + 0.5f) { t.SetPixel(x, y, clear); continue; }
 
-                    bool onEdge = dist > r - 1.35f || x == 0 || x == w - 1 || y == 0 || y == h - 1;
+                    bool onEdge = dist > r - 1.15f || x == 0 || x == w - 1 || y == 0 || y == h - 1;
                     Color c = onEdge ? border : fill;
-                    c.a *= a;
-                    px[row + x] = (Color32)c;
+                    c.a *= Mathf.Clamp01(r + 0.5f - dist);
+                    t.SetPixel(x, y, c);
                 }
             }
-            t.SetPixels32(px);
-            t.Apply(false, true);
+            t.Apply();
             _textures.Add(t);
             return t;
-        }
-
-        private static Font _serif;
-
-        // Засечный шрифт для заголовков (как «ВЫБОР ПЕРСОНАЖА» на референсе); если в системе его нет - обычный шрифт GUI.
-        private static Font SerifFont()
-        {
-            if (_serif != null) return _serif;
-            try { _serif = Font.CreateDynamicFontFromOSFont(new[] { "Georgia", "Cambria", "Times New Roman", "Palatino Linotype", "Serif" }, 24); }
-            catch (System.Exception) { _serif = null; }
-            return _serif;
         }
 
         private void EnsureStyles()
@@ -565,47 +551,46 @@ namespace Ogni.Net
             _barTrackTex = MakeRounded(64, 24, 10, new Color(0.08f, 0.07f, 0.08f, 0.82f), new Color(0.04f, 0.035f, 0.04f, 0.88f), new Color(0.55f, 0.52f, 0.54f, 0.35f));
             _barFillTex = MakeRounded(64, 20, 8, new Color(0.74f, 0.14f, 0.16f, 0.92f), new Color(0.46f, 0.06f, 0.08f, 0.95f), new Color(0.95f, 0.35f, 0.35f, 0.55f));
 
-            // Палитра по референсу: глубокий нейтральный графит, тонкие светлые рамки и тёмно-красный акцент для главных кнопок.
-            Texture2D panelBg = MakeRounded(64, 64, 8,
-                new Color(0.070f, 0.064f, 0.070f, 0.94f),
-                new Color(0.050f, 0.046f, 0.052f, 0.97f),
-                new Color(1f, 1f, 1f, 0.10f));
+            Texture2D panelBg = MakeRounded(64, 64, 12,
+                new Color(0.07f, 0.06f, 0.07f, 0.92f),
+                new Color(0.04f, 0.035f, 0.04f, 0.95f),
+                new Color(0.45f, 0.12f, 0.12f, 0.45f));
 
-            Texture2D fieldBg = MakeRounded(48, 36, 5,
-                new Color(0.045f, 0.042f, 0.048f, 0.97f),
-                new Color(0.060f, 0.056f, 0.062f, 0.97f),
-                new Color(0.70f, 0.16f, 0.18f, 0.75f));
+            Texture2D fieldBg = MakeRounded(48, 36, 8,
+                new Color(0.05f, 0.05f, 0.06f, 0.96f),
+                new Color(0.08f, 0.08f, 0.09f, 0.96f),
+                new Color(0.55f, 0.16f, 0.16f, 0.55f));
 
-            Texture2D btnN = MakeRounded(48, 40, 5,
-                new Color(0.115f, 0.105f, 0.112f, 0.95f),
-                new Color(0.078f, 0.072f, 0.078f, 0.97f),
-                new Color(1f, 1f, 1f, 0.15f));
-            Texture2D btnH = MakeRounded(48, 40, 5,
-                new Color(0.190f, 0.100f, 0.112f, 0.97f),
-                new Color(0.125f, 0.068f, 0.078f, 0.98f),
-                new Color(0.86f, 0.26f, 0.28f, 0.85f));
-            Texture2D btnA = MakeRounded(48, 40, 5,
-                new Color(0.120f, 0.050f, 0.060f, 1f),
-                new Color(0.180f, 0.070f, 0.080f, 1f),
-                new Color(0.95f, 0.30f, 0.32f, 0.95f));
+            Texture2D btnN = MakeRounded(48, 40, 8,
+                new Color(0.14f, 0.13f, 0.15f, 0.88f),
+                new Color(0.09f, 0.08f, 0.10f, 0.92f),
+                new Color(1f, 1f, 1f, 0.14f));
+            Texture2D btnH = MakeRounded(48, 40, 8,
+                new Color(0.24f, 0.12f, 0.13f, 0.95f),
+                new Color(0.16f, 0.08f, 0.09f, 0.98f),
+                new Color(0.85f, 0.22f, 0.22f, 0.65f));
+            Texture2D btnA = MakeRounded(48, 40, 8,
+                new Color(0.12f, 0.06f, 0.07f, 1f),
+                new Color(0.18f, 0.08f, 0.09f, 1f),
+                new Color(0.95f, 0.25f, 0.25f, 0.85f));
 
-            Texture2D priN = MakeRounded(48, 44, 5,
-                new Color(0.62f, 0.075f, 0.095f, 0.98f),
-                new Color(0.40f, 0.040f, 0.060f, 1f),
-                new Color(0.88f, 0.22f, 0.25f, 0.90f));
-            Texture2D priH = MakeRounded(48, 44, 5,
-                new Color(0.76f, 0.10f, 0.125f, 1f),
-                new Color(0.50f, 0.055f, 0.075f, 1f),
-                new Color(1f, 0.38f, 0.40f, 0.98f));
+            Texture2D priN = MakeRounded(48, 44, 8,
+                new Color(0.68f, 0.10f, 0.12f, 0.96f),
+                new Color(0.44f, 0.05f, 0.07f, 0.98f),
+                new Color(0.95f, 0.28f, 0.28f, 0.65f));
+            Texture2D priH = MakeRounded(48, 44, 8,
+                new Color(0.82f, 0.14f, 0.16f, 1f),
+                new Color(0.56f, 0.07f, 0.09f, 1f),
+                new Color(1f, 0.45f, 0.45f, 0.85f));
 
-            Texture2D menuN = MakeRounded(48, 48, 5,
-                new Color(0.075f, 0.068f, 0.075f, 0.80f),
-                new Color(0.045f, 0.040f, 0.046f, 0.88f),
-                new Color(0.75f, 0.14f, 0.16f, 0.45f));
-            Texture2D menuH = MakeRounded(48, 48, 5,
-                new Color(0.50f, 0.065f, 0.085f, 0.95f),
-                new Color(0.31f, 0.035f, 0.055f, 0.97f),
-                new Color(1f, 0.30f, 0.32f, 0.95f));
+            Texture2D menuN = MakeRounded(48, 48, 6,
+                new Color(0.08f, 0.06f, 0.07f, 0.72f),
+                new Color(0.04f, 0.03f, 0.04f, 0.82f),
+                new Color(0.65f, 0.12f, 0.14f, 0.35f));
+            Texture2D menuH = MakeRounded(48, 48, 6,
+                new Color(0.45f, 0.06f, 0.08f, 0.92f),
+                new Color(0.28f, 0.03f, 0.05f, 0.95f),
+                new Color(0.95f, 0.22f, 0.24f, 0.85f));
 
             RectOffset b12 = new RectOffset(12, 12, 12, 12);
             RectOffset b8 = new RectOffset(8, 8, 8, 8);
@@ -620,8 +605,8 @@ namespace Ogni.Net
 
             _panelStyle = new GUIStyle { normal = { background = panelBg }, border = b12 };
 
-            _titleStyle = new GUIStyle(GUI.skin.label) { fontSize = 23, fontStyle = FontStyle.Bold, font = SerifFont() };
-            _titleStyle.normal.textColor = new Color(0.94f, 0.92f, 0.90f);
+            _titleStyle = new GUIStyle(GUI.skin.label) { fontSize = 24, fontStyle = FontStyle.Bold };
+            _titleStyle.normal.textColor = BloodBright;
 
             _subStyle = new GUIStyle(GUI.skin.label) { fontSize = 12 };
             _subStyle.normal.textColor = new Color(0.70f, 0.68f, 0.70f);
@@ -707,6 +692,97 @@ namespace Ogni.Net
 
         // ------------------------------------------------------------------ OnGUI
 
+        private float _nextListenerScan;
+        private bool _hasOtherListener;
+        private float _nextLocalHealthScan;
+        private GUIStyle _charTagStyle, _centerHintStyle, _errStyle, _rightCountStyle;
+
+        private void SyncMenuAudioListener(bool inSession)
+        {
+            if (_menuAudioListener == null)
+            {
+                _menuAudioListener = GetComponent<AudioListener>();
+                if (_menuAudioListener == null) _menuAudioListener = gameObject.AddComponent<AudioListener>();
+            }
+
+            // Раньше FindObjectsByType<AudioListener> выполнялся каждый кадр (массив + скан сцены). 4 раза в секунду достаточно.
+            if (Time.unscaledTime >= _nextListenerScan)
+            {
+                _nextListenerScan = Time.unscaledTime + 0.25f;
+                _hasOtherListener = false;
+                foreach (AudioListener al in FindObjectsByType<AudioListener>(FindObjectsSortMode.None))
+                {
+                    if (al != null && al != _menuAudioListener && al.isActiveAndEnabled)
+                    {
+                        _hasOtherListener = true;
+                        break;
+                    }
+                }
+            }
+
+            bool hasOtherActive = _hasOtherListener;
+
+            // В главном меню (до спавна игрока) работает AudioListener меню, чтобы играли смех и пианино;
+            // когда спавнится камера игрока, уступаем ей, чтобы не было двух AudioListener.
+            _menuAudioListener.enabled = !hasOtherActive;
+            if (!inSession && AudioListener.volume < 0.05f && GameSettings.MasterVolume > 0.05f)
+            {
+                AudioListener.volume = GameSettings.MasterVolume;
+            }
+        }
+
+        private void EnsureMenuAudioSources()
+        {
+            if (_menuMusicSource == null)
+            {
+                _menuMusicSource = gameObject.AddComponent<AudioSource>();
+                _menuMusicSource.loop = true;
+                _menuMusicSource.spatialBlend = 0f;
+                _menuMusicSource.playOnAwake = false;
+                _menuMusicSource.volume = 0f;
+                AudioClip piano = UnityEngine.Resources.Load<AudioClip>("Audio/MenuPianoTheme");
+                if (piano != null) _menuMusicSource.clip = piano;
+            }
+
+            if (_splashSfxSource == null)
+            {
+                _splashSfxSource = gameObject.AddComponent<AudioSource>();
+                _splashSfxSource.loop = false;
+                _splashSfxSource.spatialBlend = 0f;
+                _splashSfxSource.playOnAwake = false;
+            }
+        }
+
+        private void UpdateMenuAudio(bool inSession)
+        {
+            SyncMenuAudioListener(inSession);
+            EnsureMenuAudioSources();
+
+            // 1. Заставка с названием игры без детского смеха (по просьбе разработчика).
+            if (!inSession && _screen == MenuScreen.Splash && !_splashGigglePlayed)
+            {
+                _splashGigglePlayed = true;
+            }
+
+            // 2. Пианино играет в главном меню («SURVIVE IF YOU CAN»), выборе персонажа, лобби и настройках;
+            // плавно затухает при входе в саму игру.
+            bool wantPiano = !inSession && _screen != MenuScreen.Splash;
+            if (_menuMusicSource != null && _menuMusicSource.clip != null)
+            {
+                if (wantPiano && !_menuMusicSource.isPlaying)
+                {
+                    _menuMusicSource.Play();
+                }
+
+                float targetVol = wantPiano ? (0.78f * Mathf.Max(0.25f, GameSettings.AmbientVolume)) : 0f;
+                _menuMusicSource.volume = Mathf.MoveTowards(_menuMusicSource.volume, targetVol, Time.unscaledDeltaTime * 0.45f);
+                if (!wantPiano && _menuMusicSource.volume <= 0.002f && _menuMusicSource.isPlaying)
+                {
+                    _menuMusicSource.Stop();
+                }
+            }
+        }
+
         private void OnGUI()
         {
             if (session == null) session = FindFirstObjectByType<GameSession>();
@@ -783,6 +859,9 @@ namespace Ogni.Net
                     break;
                 case MenuScreen.CharacterSelect:
                     DrawCharacterSelectScreen(vw, vh);
+                    break;
+                case MenuScreen.CoopLobby:
+                    DrawCoopLobbyScreen(vw, vh);
                     break;
             }
 
@@ -875,14 +954,6 @@ namespace Ogni.Net
             GUILayout.BeginArea(new Rect(menuX, menuY, menuW, menuH));
 
             GUILayout.Label("THERE IS NO WAY OUT", _titleStyle);
-            Rect rule = GUILayoutUtility.GetRect(88f, 3f, GUILayout.Width(88f), GUILayout.Height(3f));
-            if (Event.current.type == EventType.Repaint)
-            {
-                Color prev = GUI.color;
-                GUI.color = new Color(BloodRed.r, BloodRed.g, BloodRed.b, prev.a);
-                GUI.DrawTexture(rule, Texture2D.whiteTexture);
-                GUI.color = prev;
-            }
             GUILayout.Space(22f);
 
             if (GUILayout.Button(GameSettings.T("New game", "Новая игра"), _btnMenuStyle, GUILayout.Height(52f)))
@@ -1249,98 +1320,238 @@ namespace Ogni.Net
 
         // ------------------------------------------------------------------ 6. Выбор персонажа (без роли)
 
+        private static bool IsDefaultOrRosterName(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name)) return true;
+            string t = name.Trim();
+            if (t == "Выживший" || t == "Survivor") return true;
+            foreach (SquadRoster.CharacterSlot s in SquadRoster.Slots)
+            {
+                if (t == s.NameEn || t == s.NameRu) return true;
+            }
+            return false;
+        }
+
         private void DrawCharacterSelectScreen(float vw, float vh)
         {
-            // Кнопки вращения 3D-персонажа снизу слева/по центру.
-            float bx = vw * 0.5f - 125f;
-            float by = vh - 66f;
-            GUI.Label(new Rect(bx - 30f, by - 26f, 320f, 22f),
-                GameSettings.T("Hold LMB and drag to rotate", "Зажмите ЛКМ и тяните, чтобы вращать"), _subStyle);
-            if (GUI.Button(new Rect(bx, by, 120f, 36f), GameSettings.T("‹  Rotate", "‹  Поворот"), _btnStyle)) _previewYaw -= 30f;
-            if (GUI.Button(new Rect(bx + 130f, by, 120f, 36f), GameSettings.T("Rotate  ›", "Поворот  ›"), _btnStyle)) _previewYaw += 30f;
+            bool isEn = GameSettings.Language == GameLanguage.English;
+            int modelCount = SquadRoster.SquadSize;
+            int currentIdx = _draft.ModelIndex % modelCount;
+            SquadRoster.CharacterSlot activeSlot = SquadRoster.GetSlot(currentIdx);
 
-            // Правая панель выбора персонажа: переключение модели, пол, режим, имя и кнопка «Начать игру».
-            float h = 470f + Mathf.CeilToInt(Mathf.Max(1, PlayerAppearanceRig.GetAvailableModelNames().Length) / 6f) * 44f - 44f;
-            Rect panel = new Rect(vw - RightMenuWidth - PanelMargin, vh * 0.5f - h * 0.5f, RightMenuWidth, h);
+            // Стрелки < и > прямо по бокам от 3D-персонажа (переключение 4 фиксированных персонажей: 2 девушки + 2 парня).
+            float charCenterX = vw * 0.5f;
+            float arrowY = vh * 0.48f;
+            if (IsDefaultOrRosterName(_playerNameInput))
+            {
+                _playerNameInput = activeSlot.GetDisplayName(isEn);
+            }
+
+            if (GUI.Button(new Rect(charCenterX - 210f, arrowY, 44f, 44f), "‹", _btnArrowStyle))
+            {
+                int next = (currentIdx - 1 + modelCount) % modelCount;
+                bool autoName = IsDefaultOrRosterName(_playerNameInput);
+                _draft.ModelIndex = (byte)next;
+                _draft.Gender = SquadRoster.GetSlot(next).Gender;
+                if (autoName) _playerNameInput = SquadRoster.GetSlot(next).GetDisplayName(isEn);
+                ApplyDraft();
+            }
+            if (GUI.Button(new Rect(charCenterX + 166f, arrowY, 44f, 44f), "›", _btnArrowStyle))
+            {
+                int next = (currentIdx + 1) % modelCount;
+                bool autoName = IsDefaultOrRosterName(_playerNameInput);
+                _draft.ModelIndex = (byte)next;
+                _draft.Gender = SquadRoster.GetSlot(next).Gender;
+                if (autoName) _playerNameInput = SquadRoster.GetSlot(next).GetDisplayName(isEn);
+                ApplyDraft();
+            }
+
+            // Имя и пол выбранного персонажа из четвёрки прямо над подсказкой камеры.
+            if (_charTagStyle == null) _charTagStyle = new GUIStyle(_headerStyle) { alignment = TextAnchor.MiddleCenter, fontSize = 16 };
+            GUIStyle charTagStyle = _charTagStyle;
+            GUI.Label(new Rect(charCenterX - 180f, vh - 76f, 360f, 26f), SquadRoster.GetSlotLabel(currentIdx, isEn), charTagStyle);
+
+            // Подпись управления камерой под постаментом («Поворот | Масштаб»).
+            if (_centerHintStyle == null) _centerHintStyle = new GUIStyle(_subStyle) { alignment = TextAnchor.MiddleCenter, fontSize = 13 };
+            GUIStyle centerHint = _centerHintStyle;
+            GUI.Label(new Rect(charCenterX - 180f, vh - 46f, 360f, 24f),
+                GameSettings.T("LMB Rotate   |   Scroll Zoom", "ЛКМ Поворот   |   Колесо Масштаб"), centerHint);
+
+            // Правая карточка выбора персонажа по референсу.
+            float h = 445f;
+            Rect panel = new Rect(vw - RightMenuWidth - 42f, vh * 0.5f - h * 0.5f, RightMenuWidth, h);
             GUI.Box(panel, GUIContent.none, _panelStyle);
 
-            GUILayout.BeginArea(new Rect(panel.x + 22f, panel.y + 20f, panel.width - 44f, panel.height - 40f));
+            GUILayout.BeginArea(new Rect(panel.x + 24f, panel.y + 22f, panel.width - 48f, panel.height - 44f));
             GUILayout.Label(GameSettings.T("SELECT CHARACTER", "ВЫБОР ПЕРСОНАЖА"), _titleStyle);
-            Rect sepRect = GUILayoutUtility.GetRect(1f, 2f, GUILayout.ExpandWidth(true));
+            // Тонкая багровая линия-разделитель под заголовком
+            Rect lineRect = GUILayoutUtility.GetRect(panel.width - 48f, 2f);
             Color prevC = GUI.color;
-            GUI.color = new Color(0.68f, 0.16f, 0.19f, 0.80f);
-            GUI.DrawTexture(sepRect, _blackTex);
+            GUI.color = BloodBright;
+            GUI.DrawTexture(lineRect, _blackTex);
             GUI.color = prevC;
-            GUILayout.Space(10f);
-
-            // Выбор 3D-модели персонажа.
-            string[] modelNames = PlayerAppearanceRig.GetAvailableModelNames();
-            int modelCount = Mathf.Max(1, modelNames.Length);
-            int curModelIdx = _draft.ModelIndex % modelCount;
-            GUILayout.Label(GameSettings.T("Character", "Персонаж"), _headerStyle);
-            GUILayout.Space(6f);
-
-            // Модели просто пронумерованы: 1, 2, 3 ... (без названий и без выбора пола).
-            const int perRow = 6;
-            for (int rowStart = 0; rowStart < modelCount; rowStart += perRow)
-            {
-                GUILayout.BeginHorizontal();
-                for (int i = rowStart; i < Mathf.Min(modelCount, rowStart + perRow); i++)
-                {
-                    bool sel = i == curModelIdx;
-                    if (GUILayout.Button((i + 1).ToString(), sel ? _btnPrimaryStyle : _btnStyle, GUILayout.Height(40f), GUILayout.Width(52f)) && !sel)
-                    {
-                        _draft.ModelIndex = (byte)i;
-                        ApplyDraft();
-                        if (_previewRig != null) { _previewRig.Apply(_draft); SetPreviewLayer(_previewRoot); DisablePreviewShadows(_previewRoot); }
-                    }
-                    GUILayout.Space(4f);
-                }
-                GUILayout.EndHorizontal();
-                GUILayout.Space(4f);
-            }
+            GUILayout.Space(16f);
 
             if (_pendingMode != PendingLaunchMode.Client)
             {
-                GUILayout.Space(12f);
-                GUILayout.Label(GameSettings.T("Mode", "Режим"), _labelStyle);
+                GUILayout.Label(GameSettings.T("Game Mode", "Режим игры"), _labelStyle);
+                GUILayout.Space(4f);
                 GUILayout.BeginHorizontal();
-                if (GUILayout.Button(GameSettings.T("Solo", "Соло"), _pendingMode == PendingLaunchMode.Solo ? _btnPrimaryStyle : _btnStyle, GUILayout.Height(34f)))
+                if (GUILayout.Button(GameSettings.T("Singleplayer", "Одиночная игра"), _pendingMode == PendingLaunchMode.Solo ? _btnPrimaryStyle : _btnStyle, GUILayout.Height(36f)))
                 {
                     _pendingMode = PendingLaunchMode.Solo;
                 }
                 GUILayout.Space(6f);
-                if (GUILayout.Button(GameSettings.T("Co-op Host", "Хост (Кооп)"), _pendingMode == PendingLaunchMode.Host ? _btnPrimaryStyle : _btnStyle, GUILayout.Height(34f)))
+                if (GUILayout.Button(GameSettings.T("Co-op", "Кооператив"), _pendingMode == PendingLaunchMode.Host ? _btnPrimaryStyle : _btnStyle, GUILayout.Height(36f)))
                 {
                     _pendingMode = PendingLaunchMode.Host;
                 }
                 GUILayout.EndHorizontal();
+                GUILayout.Space(14f);
             }
 
-            GUILayout.Space(16f);
-            GUILayout.Label(GameSettings.T("Player Name", "Имя игрока"), _headerStyle);
+            GUILayout.Label(GameSettings.T("Player Name", "Имя игрока"), _labelStyle);
             GUILayout.Space(4f);
-            string nextName = GUILayout.TextField(_playerNameInput, 20, _fieldStyle, GUILayout.Height(38f));
+            string nextName = GUILayout.TextField(_playerNameInput, 20, _fieldStyle, GUILayout.Height(40f));
             if (nextName != _playerNameInput)
             {
                 _playerNameInput = nextName;
-                ApplyDraft();
+                if (NameProfanityFilter.IsAllowed(_playerNameInput, out _)) ApplyDraft();
+            }
+
+            bool nameOk = NameProfanityFilter.IsAllowed(_playerNameInput, out string nameErr);
+            if (!nameOk)
+            {
+                if (_errStyle == null)
+                {
+                    _errStyle = new GUIStyle(_hintStyle) { wordWrap = true, fontStyle = FontStyle.Bold };
+                    _errStyle.normal.textColor = new Color(0.98f, 0.32f, 0.34f);
+                }
+                GUIStyle errStyle = _errStyle;
+                GUILayout.Space(4f);
+                GUILayout.Label(nameErr, errStyle);
             }
 
             GUILayout.Space(14f);
-            if (GUILayout.Button(GameSettings.T("Start game", "Начать игру"), _btnPrimaryStyle, GUILayout.Height(50f)))
+            string primaryLabel = _pendingMode == PendingLaunchMode.Host
+                ? GameSettings.T("Open Lobby", "Перейти в лобби")
+                : GameSettings.T("Start game", "Начать игру");
+            GUI.enabled = nameOk;
+            if (GUILayout.Button(primaryLabel, _btnPrimaryStyle, GUILayout.Height(50f)) && nameOk)
             {
+                if (string.IsNullOrWhiteSpace(_playerNameInput))
+                    _playerNameInput = activeSlot.GetDisplayName(isEn);
                 ApplyDraft();
-                LaunchGameSession();
+                if (_pendingMode == PendingLaunchMode.Host)
+                {
+                    _screen = MenuScreen.CoopLobby;
+                    _menuFade = 0f;
+                }
+                else
+                {
+                    LaunchGameSession();
+                }
             }
+            GUI.enabled = true;
 
-            GUILayout.FlexibleSpace();
-            if (GUILayout.Button(GameSettings.T("Back", "Назад"), _btnStyle, GUILayout.Height(38f)))
+            GUILayout.Space(10f);
+            if (GUILayout.Button(GameSettings.T("Back", "Назад"), _btnStyle, GUILayout.Height(40f)))
             {
                 _screen = _pendingMode == PendingLaunchMode.Client ? MenuScreen.JoinGame : MenuScreen.MainMenu;
                 _menuFade = 0f;
             }
             GUILayout.EndArea();
+        }
+
+        // ------------------------------------------------------------------ 6b. Кооперативное Лобби (по референсу)
+
+        private void DrawCoopLobbyScreen(float vw, float vh)
+        {
+            GUI.DrawTexture(new Rect(0f, 0f, vw, vh), _rightShadowTex);
+
+            float w = Mathf.Min(820f, vw - 60f);
+            float h = Mathf.Min(490f, vh - 60f);
+            Rect panel = new Rect((vw - w) * 0.5f, (vh - h) * 0.5f, w, h);
+            GUI.Box(panel, GUIContent.none, _panelStyle);
+
+            float px = panel.x + 28f;
+            float py = panel.y + 22f;
+            float innerW = panel.width - 56f;
+
+            // Шапка: ЛОББИ (слева) и Игроков: 1 / 4 (справа)
+            GUI.Label(new Rect(px, py, 260f, 34f), GameSettings.T("LOBBY", "ЛОББИ"), _titleStyle);
+            if (_rightCountStyle == null) _rightCountStyle = new GUIStyle(_headerStyle) { alignment = TextAnchor.MiddleRight, fontSize = 15 };
+            GUIStyle rightCount = _rightCountStyle;
+            GUI.Label(new Rect(px + innerW - 200f, py + 4f, 200f, 28f), GameSettings.T("Players: 1 / 4", "Игроков: 1 / 4"), rightCount);
+
+            float bodyY = py + 50f;
+            float leftW = innerW * 0.58f;
+            float rightX = px + leftW + 20f;
+            float rightW = innerW - leftW - 20f;
+
+            // Левая колонка: 4 слота игроков
+            string hostName = string.IsNullOrWhiteSpace(_playerNameInput) ? GameSettings.T("Survivor", "Выживший") : _playerNameInput.Trim();
+            string[] slotNames = { hostName + "  ★", GameSettings.T("Waiting for player...", "Ожидание игрока..."), GameSettings.T("Waiting for player...", "Ожидание игрока..."), GameSettings.T("Waiting for player...", "Ожидание игрока...") };
+            for (int i = 0; i < 4; i++)
+            {
+                Rect row = new Rect(px, bodyY + i * 64f, leftW, 56f);
+                GUI.Box(row, GUIContent.none, _panelStyle);
+
+                // Иконка аватара
+                Rect av = new Rect(row.x + 10f, row.y + 8f, 40f, 40f);
+                GUI.Box(av, i == 0 ? (_draft.Gender == CharacterGender.Female ? "Ж" : "М") : "?", _valueStyle);
+
+                // Имя
+                GUI.Label(new Rect(av.xMax + 12f, row.y + 14f, row.width - 180f, 28f), slotNames[i], i == 0 ? _headerStyle : _subStyle);
+
+                // Статус готовности
+                GUIStyle st = new GUIStyle(_labelStyle) { alignment = TextAnchor.MiddleRight, fontSize = 13, fontStyle = FontStyle.Bold };
+                if (i == 0)
+                {
+                    st.normal.textColor = _lobbyHostReady ? new Color(0.28f, 0.86f, 0.42f) : new Color(0.65f, 0.66f, 0.70f);
+                    if (GUI.Button(new Rect(row.xMax - 118f, row.y + 12f, 106f, 32f),
+                        _lobbyHostReady ? GameSettings.T("● Ready", "● Готов") : GameSettings.T("● Not ready", "● Не готов"), _btnStyle))
+                    {
+                        _lobbyHostReady = !_lobbyHostReady;
+                    }
+                }
+                else
+                {
+                    st.normal.textColor = new Color(0.52f, 0.54f, 0.58f);
+                    GUI.Label(new Rect(row.xMax - 118f, row.y + 14f, 106f, 28f), GameSettings.T("● Empty", "● Пусто"), st);
+                }
+            }
+
+            // Правая колонка: карточка карты и режима
+            Rect mapCard = new Rect(rightX, bodyY, rightW, 250f);
+            GUI.Box(mapCard, GUIContent.none, _panelStyle);
+            GUILayout.BeginArea(new Rect(mapCard.x + 16f, mapCard.y + 16f, mapCard.width - 32f, mapCard.height - 32f));
+            GUILayout.Label(GameSettings.T("Map:", "Карта:"), _subStyle);
+            GUILayout.Label(GameSettings.T("Forest Zone", "Лесная зона"), _headerStyle);
+            GUILayout.Space(12f);
+            GUILayout.Label(GameSettings.T("Mode:", "Режим:"), _subStyle);
+            GUILayout.Label(GameSettings.T($"Campaign ({_lobbyDays} days)", $"Кампания ({_lobbyDays} дней)"), _headerStyle);
+            GUILayout.Space(12f);
+            GUILayout.Label(GameSettings.T($"Host IP: {address}", $"Адрес хоста: {address}"), _hintStyle);
+            GUILayout.FlexibleSpace();
+            if (GUILayout.Button(GameSettings.T("Lobby Settings", "Настройки лобби"), _btnStyle, GUILayout.Height(36f)))
+            {
+                _lobbyDays = _lobbyDays == 7 ? 14 : (_lobbyDays == 14 ? 30 : 7);
+            }
+            GUILayout.EndArea();
+
+            // Нижняя панель кнопок: Выйти (слева) и Начать сессию (справа)
+            float footY = panel.yMax - 68f;
+            if (GUI.Button(new Rect(px, footY, 160f, 46f), GameSettings.T("Leave", "Выйти"), _btnStyle))
+            {
+                _screen = MenuScreen.CharacterSelect;
+                _menuFade = 0f;
+            }
+            if (GUI.Button(new Rect(px + innerW - 260f, footY, 260f, 46f), GameSettings.T("Start Session", "Начать сессию"), _btnPrimaryStyle))
+            {
+                ApplyDraft();
+                LaunchGameSession();
+            }
         }
 
         private void LaunchGameSession()
@@ -1387,6 +1598,11 @@ namespace Ogni.Net
             {
                 if (p == null) continue;
                 GUILayout.Label($"•  {p.DisplayName}", _labelStyle);
+            }
+            foreach (CompanionBotAI bot in SoloCompanionSpawner.ActiveCompanions)
+            {
+                if (bot == null) continue;
+                GUILayout.Label($"•  {bot.BotName}  (ИИ)", _subStyle);
             }
 
             GUILayout.FlexibleSpace();

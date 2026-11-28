@@ -27,6 +27,15 @@ namespace Ogni.Player
 
         public bool IsOn => _isOn.Value;
 
+        private bool _suppressed;
+
+        /// <summary>Временно гасит луч (в салоне машины он в упор засвечивал напарников белым). Состояние IsOn не меняется.</summary>
+        public void SetSuppressed(bool suppressed)
+        {
+            _suppressed = suppressed;
+            ApplyLightState(_isOn.Value);
+        }
+
         private void Awake()
         {
             _input = GetComponent<PlayerInputReader>();
@@ -46,6 +55,11 @@ namespace Ogni.Player
             spotLight.spotAngle = outerSpotAngle;
             spotLight.innerSpotAngle = innerSpotAngle;
             spotLight.color = new Color(1f, 0.96f, 0.88f);
+            // Выносим источник луча вперёд перед руками и луком, чтобы фонарик не засвечивал их белым.
+            if (spotLight.transform.localPosition.z < 0.45f)
+            {
+                spotLight.transform.localPosition = new Vector3(0.06f, -0.06f, 0.58f);
+            }
         }
 
         public override void OnNetworkSpawn()
@@ -89,7 +103,7 @@ namespace Ogni.Player
         {
             if (spotLight != null)
             {
-                spotLight.enabled = on;
+                spotLight.enabled = on && !_suppressed;
             }
         }
     }

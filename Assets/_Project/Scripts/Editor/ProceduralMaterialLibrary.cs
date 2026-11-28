@@ -145,12 +145,31 @@ namespace Ogni.EditorTools
             lib.SmokeParticle = CreateParticleMaterial("SmokeParticle", new Color(0.28f, 0.27f, 0.26f, 0.35f));
             lib.EmberParticle = CreateParticleMaterial("EmberParticle", new Color(1f, 0.45f, 0.08f, 1f));
 
-            // PBR-наборы из Assets/Textures/City (если найдены, заменяют процедурные текстуры).
-            CityPbr.Apply(lib.Asphalt, "asphalt_wet", false, true, 1.25f, true);
-            CityPbr.Apply(lib.Concrete, "concrete_mossy");
-            CityPbr.Apply(lib.Brick, "brick_overgrown");
-            CityPbr.Apply(lib.RustyMetal, "rust_metal");
-            CityPbr.Apply(lib.MossGround, "grass_overgrowth");
+            // PBR-наборы из Assets/Textures/City (если найдены, заменяют процедурные текстуры и слои Terrain).
+            if (CityPbr.ApplyAny(lib.Asphalt, new[] { "worn_asphalt", "asphalt_wet", "asphalt_02", "asphalt" }, out Texture2D pbrAsAlb, out Texture2D pbrAsNrm, false, true, 1.25f, true))
+            {
+                if (pbrAsAlb != null) lib.AsphaltTex = pbrAsAlb;
+                if (pbrAsNrm != null) lib.AsphaltNormal = pbrAsNrm;
+            }
+            if (CityPbr.ApplyAny(lib.ForestGround, new[] { "forest_ground", "forest_floor", "brown_mud_leaves", "grass_overgrowth" }, out Texture2D pbrFgAlb, out Texture2D pbrFgNrm, false, false, 0.9f, false))
+            {
+                if (pbrFgAlb != null) lib.ForestGroundTex = pbrFgAlb;
+                if (pbrFgNrm != null) lib.ForestGroundNormal = pbrFgNrm;
+            }
+            if (CityPbr.ApplyAny(lib.DirtRoad, new[] { "rocky_terrain_02", "dirt_road", "mud_road", "gravel_road", "brown_mud" }, out Texture2D pbrDrAlb, out Texture2D pbrDrNrm, false, true, 1.0f, false))
+            {
+                if (pbrDrAlb != null) lib.DirtRoadTex = pbrDrAlb;
+                if (pbrDrNrm != null) lib.DirtRoadNormal = pbrDrNrm;
+            }
+            CityPbr.ApplyAny(lib.WoodPlanks, new[] { "weathered_brown_planks", "dark_wooden_planks", "wood_planks", "worn_planks", "planks", "old_wood" }, out _, out _);
+            CityPbr.ApplyAny(lib.PlankCut, new[] { "brown_planks_09", "dark_wooden_planks", "weathered_brown_planks", "wood_planks", "worn_planks" }, out _, out _);
+            CityPbr.ApplyAny(lib.CharredWood, new[] { "ceramic_roof_01", "black_painted_planks" }, out _, out _, false, false, 1f, true);
+            CityPbr.ApplyAny(lib.TreeBark, new[] { "tree_bark", "pine_bark", "bark" }, out _, out _);
+            CityPbr.ApplyAny(lib.Concrete, new[] { "concrete_mossy", "concrete" }, out _, out _);
+            CityPbr.ApplyAny(lib.Brick, new[] { "wall_bricks_plaster", "broken_brick_wall", "worn_brick_wall", "red_brick", "brick_overgrown", "brick" }, out _, out _);
+            CityPbr.ApplyAny(lib.RustyMetal, new[] { "rusty_metal_04", "rust_metal", "rust" }, out _, out _);
+            CityPbr.ApplyAny(lib.Stone, new[] { "gray_rocks", "rock", "stone" }, out _, out _, false, false, 1f, true);
+            CityPbr.ApplyAny(lib.MossGround, new[] { "grass_overgrowth", "moss", "forest_ground" }, out _, out _);
 
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();

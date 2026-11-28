@@ -29,20 +29,23 @@ namespace Ogni.World
             NetworkVariableReadPermission.Everyone,
             NetworkVariableWritePermission.Server);
 
-        /// <summary>0 - ночь, 1 - полдень. Нужна графике для подстройки экспозиции.</summary>
-        public static float DayFactor { get; private set; } = 0.7f;
-        private float _nextGiUpdate;
-        private float _lastGiDay = -1f;
+        // Локальное время: сервер и клиенты крутят его сами каждый кадр, а по сети оно сверяется раз в секунду.
+        // Раньше сервер писал NetworkVariable КАЖДЫЙ кадр (лишний сетевой трафик на каждом тике).
+        private float _localTime = 0.28f;
+        private bool _localReady;
+        private float _syncTimer;
+        private float _nextAtmosphere;
+        private float _nextSunLookup;
 
-        public float NormalizedTime => _normalizedTime.Value;
+        public float NormalizedTime => _localReady ? _localTime : _normalizedTime.Value;
         public int CurrentDay => _dayNumber.Value;
-        public bool IsNight => _normalizedTime.Value >= 0.72f || _normalizedTime.Value < 0.15f;
+        public bool IsNight => NormalizedTime >= 0.72f || NormalizedTime < 0.15f;
 
         public string PhaseName
         {
             get
             {
-                float t = _normalizedTime.Value;
+                float t = NormalizedTime;
                 if (t >= 0.15f && t < 0.22f) return "Рассвет";
                 if (t >= 0.22f && t < 0.60f) return "День";
                 if (t >= 0.60f && t < 0.72f) return "Вечер";
@@ -63,58 +66,70 @@ namespace Ogni.World
                 RenderSettings.skybox = skyboxMaterial;
             }
 
-            EnsureSkyAndSun();
-            ApplyAtmosphere(_normalizedTime.Value);
-        }
-
-        // Страховка: если на сцене потерялись солнце или процедурное небо - находим/создаём их, иначе днём остаётся ночное небо и темнота.
-        private void EnsureSkyAndSun()
-        {
-            if (sunLight == null)
-            {
-                sunLight = RenderSettings.sun;
-                if (sunLight == null)
-                {
-                    foreach (Light l in FindObjectsByType<Light>(FindObjectsSortMode.None))
-                        if (l.type == LightType.Directional) { sunLight = l; break; }
-                }
-            }
-
-            if (sunLight != null) RenderSettings.sun = sunLight;
-
-            if (RenderSettings.skybox == null || !RenderSettings.skybox.HasProperty("_Exposure"))
-            {
-                Shader sh = Shader.Find("Skybox/Procedural");
-                if (sh != null)
-                {
-                    var sky = new Material(sh) { name = "RuntimeProceduralSky" };
-                    if (sky.HasProperty("_SunSize")) sky.SetFloat("_SunSize", 0.04f);
-                    RenderSettings.skybox = sky;
-                }
-            }
+            _localTime = _normalizedTime.Value;
+            _localReady = true;
+            ApplyAtmosphere(_localTime);
         }
 
         private void Update()
         {
-            if (IsServer && dayDurationSeconds > 1f)
+            if (!_localReady) return;
+
+            float step = dayDurationSeconds > 1f ? Time.deltaTime / dayDurationSeconds : 0f;
+            bool forceApply = false;
+
+            if (IsServer)
             {
-                float next = _normalizedTime.Value + Time.deltaTime / dayDurationSeconds;
+                float next = _localTime + step;
+                bool jumped = false;
 
                 if (Keyboard.current != null && Keyboard.current.f2Key.wasPressedThisFrame)
                 {
                     next += 0.125f;
+                    jumped = true;
                 }
 
                 if (next >= 1f)
                 {
                     next -= 1f;
                     _dayNumber.Value++;
+                    jumped = true;
                 }
 
-                _normalizedTime.Value = next;
+                _localTime = next;
+                _syncTimer += Time.deltaTime;
+                if (jumped || _syncTimer >= 1f)
+                {
+                    _syncTimer = 0f;
+                    _normalizedTime.Value = _localTime;
+                }
+
+                forceApply = jumped;
+            }
+            else
+            {
+                // Клиент: идёт тем же темпом, мягко подтягиваясь к серверному значению; при большой разнице (F2, новый день) - прыжок.
+                _localTime += step;
+                float diff = Mathf.Repeat(_normalizedTime.Value - _localTime + 0.5f, 1f) - 0.5f;
+                if (Mathf.Abs(diff) > 0.01f)
+                {
+                    _localTime = _normalizedTime.Value;
+                    forceApply = true;
+                }
+                else
+                {
+                    _localTime += diff * Mathf.Min(1f, Time.deltaTime * 0.5f);
+                }
+
+                _localTime = Mathf.Repeat(_localTime, 1f);
             }
 
-            ApplyAtmosphere(_normalizedTime.Value);
+            // Сутки идут 20 минут, поэтому пересчитывать небо/туман/ambient каждый кадр незачем: 4 раза в секунду достаточно.
+            if (forceApply || Time.unscaledTime >= _nextAtmosphere)
+            {
+                _nextAtmosphere = Time.unscaledTime + 0.25f;
+                ApplyAtmosphere(_localTime);
+            }
         }
 
         private void ApplyAtmosphere(float t)
@@ -140,62 +155,70 @@ namespace Ogni.World
                 duskFactor = 1f - Mathf.Abs(t - 0.19f) / 0.05f;
             }
 
-            DayFactor = dayFactor;
-            if (sunLight == null || RenderSettings.skybox == null) EnsureSkyAndSun();
+            if (sunLight == null && Time.unscaledTime >= _nextSunLookup)
+            {
+                // Если направленного света в сцене нет, не сканируем сцену каждый кадр - повторяем раз в 3 с.
+                _nextSunLookup = Time.unscaledTime + 3f;
+                sunLight = RenderSettings.sun;
+                if (sunLight == null)
+                {
+                    foreach (Light l in FindObjectsByType<Light>(FindObjectsSortMode.None))
+                    {
+                        if (l.type == LightType.Directional) { sunLight = l; break; }
+                    }
+                }
+            }
 
             if (sunLight != null)
             {
-                sunLight.transform.rotation = Quaternion.Euler(Mathf.Lerp(12f, 58f, dayFactor), -35f + sunAngle * 0.25f, 0f);
+                sunLight.transform.rotation = Quaternion.Euler(Mathf.Lerp(12f, 56f, dayFactor), -35f + sunAngle * 0.25f, 0f);
                 Color dayColor = new Color(1f, 0.96f, 0.88f);
-                Color duskColor = new Color(0.98f, 0.54f, 0.28f);
-                Color nightColor = new Color(0.45f, 0.56f, 0.86f);
+                Color duskColor = new Color(0.96f, 0.54f, 0.30f);
+                Color nightColor = new Color(0.35f, 0.45f, 0.75f);
 
                 Color c = Color.Lerp(nightColor, dayColor, dayFactor);
                 c = Color.Lerp(c, duskColor, duskFactor * 0.85f);
                 sunLight.color = c;
-                // Яркий реалистичный дневной свет, лунный свет ночью.
-                sunLight.intensity = Mathf.Lerp(0.16f, 1.75f, dayFactor);
-                sunLight.shadowStrength = Mathf.Lerp(0.95f, 0.85f, dayFactor);
+                sunLight.intensity = Mathf.Lerp(0.18f, 2.0f, dayFactor);
             }
 
-            if (RenderSettings.skybox != null && RenderSettings.skybox.HasProperty("_Exposure"))
+            if (RenderSettings.skybox != null)
             {
-                RenderSettings.skybox.SetFloat("_Exposure", Mathf.Lerp(0.18f, 1.30f, dayFactor));
-                // Ночью без солнечного диска и ореола на небе.
-                if (RenderSettings.skybox.HasProperty("_SunSize"))
-                    RenderSettings.skybox.SetFloat("_SunSize", Mathf.Lerp(0f, 0.04f, Mathf.Clamp01(dayFactor * 4f)));
+                if (RenderSettings.skybox.HasProperty("_Exposure"))
+                    RenderSettings.skybox.SetFloat("_Exposure", Mathf.Lerp(0.20f, 1.35f, dayFactor));
                 if (RenderSettings.skybox.HasProperty("_AtmosphereThickness"))
+                    RenderSettings.skybox.SetFloat("_AtmosphereThickness", Mathf.Lerp(0.65f, 1.45f, Mathf.Max(dayFactor * 0.6f, duskFactor)));
+                if (RenderSettings.skybox.HasProperty("_SkyTint"))
                 {
-                    RenderSettings.skybox.SetFloat("_AtmosphereThickness", Mathf.Lerp(0.9f, 1.05f, dayFactor) + duskFactor * 0.55f);
+                    Color skyNight = new Color(0.06f, 0.08f, 0.16f);
+                    Color skyDay = new Color(0.46f, 0.62f, 0.82f);
+                    Color skyDusk = new Color(0.65f, 0.36f, 0.26f);
+                    Color sky = Color.Lerp(Color.Lerp(skyNight, skyDay, dayFactor), skyDusk, duskFactor * 0.75f);
+                    RenderSettings.skybox.SetColor("_SkyTint", sky);
+                }
+                if (RenderSettings.skybox.HasProperty("_GroundColor"))
+                {
+                    RenderSettings.skybox.SetColor("_GroundColor", Color.Lerp(new Color(0.04f, 0.05f, 0.07f), new Color(0.32f, 0.36f, 0.34f), dayFactor));
                 }
             }
 
-            Color nightAmbient = new Color(0.060f, 0.072f, 0.110f);
-            Color dayAmbient = new Color(0.60f, 0.65f, 0.72f);
-            Color duskAmbient = new Color(0.30f, 0.21f, 0.18f);
+            Color nightAmbient = new Color(0.05f, 0.06f, 0.10f);
+            Color dayAmbient = new Color(0.56f, 0.60f, 0.66f);
+            Color duskAmbient = new Color(0.30f, 0.20f, 0.18f);
             Color amb = Color.Lerp(nightAmbient, dayAmbient, dayFactor);
-            Color ambFinal = Color.Lerp(amb, duskAmbient, duskFactor * 0.55f);
+            Color ambFinal = Color.Lerp(amb, duskAmbient, duskFactor * 0.5f);
             RenderSettings.ambientLight = ambFinal;
-            RenderSettings.ambientSkyColor = ambFinal * 1.25f;
-            RenderSettings.ambientEquatorColor = ambFinal * 1.0f;
-            RenderSettings.ambientGroundColor = ambFinal * 0.7f;
-            RenderSettings.reflectionIntensity = Mathf.Lerp(0.5f, 1.0f, dayFactor);
+            // Трёхцветное окружение: небо ярче, горизонт мягче, земля темнее - объёмнее тени без SSAO.
+            RenderSettings.ambientSkyColor = ambFinal * 1.5f;
+            RenderSettings.ambientEquatorColor = ambFinal * 1.1f;
+            RenderSettings.ambientGroundColor = ambFinal * 0.65f;
 
-            // Дымка: днём прозрачный голубоватый воздух, ночью и в сумерки - густой туман.
-            Color nightFog = new Color(0.030f, 0.038f, 0.056f);
-            Color dayFog = new Color(0.60f, 0.67f, 0.74f);
-            Color duskFog = new Color(0.40f, 0.25f, 0.20f);
+            Color nightFog = new Color(0.02f, 0.03f, 0.05f);
+            Color dayFog = new Color(0.42f, 0.47f, 0.50f);
+            Color duskFog = new Color(0.46f, 0.27f, 0.20f);
             Color fog = Color.Lerp(nightFog, dayFog, dayFactor);
-            RenderSettings.fogColor = Color.Lerp(fog, duskFog, duskFactor * 0.78f);
-            RenderSettings.fogDensity = Mathf.Lerp(0.030f, 0.0075f, dayFactor);
-
-            // Процедурное небо: освещение окружения и отражения обновляем при заметной смене времени суток.
-            if (Time.unscaledTime >= _nextGiUpdate && Mathf.Abs(dayFactor - _lastGiDay) > 0.03f)
-            {
-                _nextGiUpdate = Time.unscaledTime + 2f;
-                _lastGiDay = dayFactor;
-                DynamicGI.UpdateEnvironment();
-            }
+            RenderSettings.fogColor = Color.Lerp(fog, duskFog, duskFactor * 0.8f);
+            RenderSettings.fogDensity = Mathf.Lerp(0.032f, 0.011f, dayFactor);
         }
     }
 }

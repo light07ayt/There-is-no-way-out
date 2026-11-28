@@ -160,6 +160,16 @@ namespace Ogni.Player
             _invulnerableUntil = Time.time + respawnInvulnerability;
         }
 
+        /// <summary>Воскрешение нокаутированного игрока ИИ-напарником в одиночной игре.</summary>
+        public void ReviveByCompanionServer()
+        {
+            if (!IsServer || !_isDowned.Value) return;
+            _isDowned.Value = false;
+            _health.Value = maxHealth * 0.5f;
+            _respawnRemaining.Value = 0f;
+            _invulnerableUntil = Time.time + respawnInvulnerability;
+        }
+
         [ServerRpc]
         public void GiveUpServerRpc()
         {

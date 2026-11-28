@@ -77,6 +77,7 @@ namespace Ogni.Net
                 NetworkManager.Singleton.Shutdown();
             }
 
+            SoloCompanionSpawner.DespawnAll();
             Mode = SessionMode.None;
         }
 
@@ -113,6 +114,10 @@ namespace Ogni.Net
             if (!started)
             {
                 Debug.LogError($"[GameSession] Не удалось запустить режим {mode}.");
+            }
+            else
+            {
+                SoloCompanionSpawner.OnSessionStarted(mode);
             }
 
             return started;

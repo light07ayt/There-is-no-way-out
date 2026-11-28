@@ -14,6 +14,7 @@ Material:
   m_ValidKeywords:
   - _METALLICSPECGLOSSMAP
   - _NORMALMAP
+  - _OCCLUSIONMAP
   - _PARALLAXMAP
   m_InvalidKeywords:
   - _METALLICGLOSSMAP
@@ -30,11 +31,11 @@ Material:
     serializedVersion: 3
     m_TexEnvs:
     - _BaseMap:
-        m_Texture: {fileID: 2800000, guid: 7164acff762f091408b60a22495d7232, type: 3}
+        m_Texture: {fileID: 2800000, guid: a4385a43944d6f640b09056d756f1f6f, type: 3}
         m_Scale: {x: 8, y: 20}
         m_Offset: {x: 0, y: 0}
     - _BumpMap:
-        m_Texture: {fileID: 2800000, guid: e7cb155aefec1a24ab089175f7a7df22, type: 3}
+        m_Texture: {fileID: 2800000, guid: 4ecc188b70161aa428ce26a537552936, type: 3}
         m_Scale: {x: 8, y: 20}
         m_Offset: {x: 0, y: 0}
     - _DetailAlbedoMap:
@@ -54,19 +55,19 @@ Material:
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     - _MainTex:
-        m_Texture: {fileID: 2800000, guid: 7164acff762f091408b60a22495d7232, type: 3}
+        m_Texture: {fileID: 2800000, guid: a4385a43944d6f640b09056d756f1f6f, type: 3}
         m_Scale: {x: 8, y: 20}
         m_Offset: {x: 0, y: 0}
     - _MetallicGlossMap:
-        m_Texture: {fileID: 2800000, guid: 2016069f70a90134a92f88f7f11190ed, type: 3}
+        m_Texture: {fileID: 2800000, guid: b480405354de8604cb1d205eb2db35f9, type: 3}
         m_Scale: {x: 8, y: 20}
         m_Offset: {x: 0, y: 0}
     - _OcclusionMap:
-        m_Texture: {fileID: 0}
+        m_Texture: {fileID: 2800000, guid: 6ed6747c0a61bcc469ff3d9d32b75f92, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     - _ParallaxMap:
-        m_Texture: {fileID: 2800000, guid: 6d2cafc34ce2bcf4399fa8891173ade9, type: 3}
+        m_Texture: {fileID: 2800000, guid: d09c9ac28db3cfb4e80582a2006ec26f, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     - _SpecGlossMap:
@@ -106,7 +107,7 @@ Material:
     - _Glossiness: 0.22
     - _GlossyReflections: 0
     - _Metallic: 1
-    - _OcclusionStrength: 1
+    - _OcclusionStrength: 0.8
     - _Parallax: 0.02
     - _QueueOffset: 0
     - _ReceiveShadows: 1

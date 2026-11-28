@@ -12,6 +12,7 @@ namespace Ogni.Entities
     {
         public enum Kind { Cry, Whisper, Footsteps, Knock, Creak, Growl, Hiss, Screech }
 
+        public static bool ProceduralSfxEnabled = false;
         private const int Rate = 22050;
         private static readonly Dictionary<Kind, AudioClip> Cache = new();
 
@@ -29,6 +30,7 @@ namespace Ogni.Entities
         /// <summary>Проигрывает объёмный звук в точке (одноразовый источник).</summary>
         public static void PlayAt(Kind kind, Vector3 position, float volume = 1f, float maxDistance = 40f, float pitch = 1f)
         {
+            if (!ProceduralSfxEnabled) return;
             AudioClip clip = Get(kind);
             GameObject go = new GameObject("MonsterSound_" + kind);
             go.transform.position = position;

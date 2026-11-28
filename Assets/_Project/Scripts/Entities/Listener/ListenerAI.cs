@@ -42,7 +42,7 @@ namespace Ogni.Entities.Listener
         [SerializeField, Min(0f)] private float investigateSpeed = 2.1f;
         [SerializeField, Min(0f)] private float chaseSpeed = 2.9f;
         [SerializeField, Min(0.1f)] private float turnSpeed = 7f;
-        [SerializeField, Min(1f)] private float patrolRadius = 38f;
+        [SerializeField, Min(1f)] private float patrolRadius = 5f;
         [SerializeField, Min(0.1f)] private float bodyRadius = 0.42f;
         [SerializeField, Min(0.5f)] private float bodyHeight = 1.85f;
         [SerializeField] private LayerMask obstacleMask = ~0;
@@ -62,36 +62,6 @@ namespace Ogni.Entities.Listener
         [SerializeField, Min(0)] private int clothReward = 2;
         [SerializeField, Min(0)] private int metalReward = 1;
 
-        [Header("Ближний бой, походка и труп")]
-        [Tooltip("Дистанция (м), с которой зомби начинает бить: он подходит вплотную, чтобы когти реально доставали.")]
-        [SerializeField, Min(0.3f)] private float clawReach = 1.05f;
-        [Tooltip("В какой доле клипа атаки когти касаются цели (урон наносится в этот момент).")]
-        [SerializeField, Range(0.2f, 0.8f)] private float attackHitFraction = 0.45f;
-        [Tooltip("Сколько секунд труп лежит на земле до исчезновения.")]
-        [SerializeField, Min(5f)] private float corpseLingerSeconds = 45f;
-        [Tooltip("За сколько последних секунд труп уходит под землю (вместо резкого исчезновения).")]
-        [SerializeField, Min(0.5f)] private float corpseSinkSeconds = 4f;
-        [Tooltip("Если цель правее/левее этого угла - зомби сначала разворачивается на месте, а не скользит боком.")]
-        [SerializeField, Range(20f, 120f)] private float turnInPlaceAngle = 65f;
-
-        [Header("Агрессия (поверх значений префаба)")]
-        [Tooltip("Множитель скорости всех передвижений.")]
-        [SerializeField, Min(1f)] private float speedMultiplier = 1.6f;
-        [Tooltip("Радиус (м), в котором зомби чует игрока рядом, даже если тот стоит тихо.")]
-        [SerializeField, Min(1f)] private float senseRadius = 9f;
-        [Tooltip("Во сколько раз дальше зомби слышит шум.")]
-        [SerializeField, Min(1f)] private float hearingBoost = 2.2f;
-        [Tooltip("С какого расстояния (м) зомби бросает погоню.")]
-        [SerializeField, Min(1f)] private float chaseLoseDistance = 32f;
-        [Tooltip("Доля времени оглушения от удара (меньше - зомби быстрее возвращается в бой).")]
-        [SerializeField, Range(0.1f, 1f)] private float staggerScale = 0.4f;
-        [Tooltip("Доля перезарядки атаки (меньше - бьёт чаще).")]
-        [SerializeField, Range(0.3f, 1f)] private float cooldownScale = 0.7f;
-        [Tooltip("Если все игроки дальше этого расстояния (м), зомби \"засыпает\" и не нагружает процессор.")]
-        [SerializeField, Min(20f)] private float activeRange = 140f;
-        private float _nextFarCheck;
-        private bool _farFromPlayers;
-
         [Header("Возрождение")]
         [Tooltip("Через сколько секунд после смерти Слушатель возрождается на месте появления (600 = 10 минут).")]
         [SerializeField, Min(1f)] private float respawnDelaySeconds = 600f;
@@ -106,11 +76,8 @@ namespace Ogni.Entities.Listener
             120f, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
 
         private Vector3 _spawnPosition;
+        private float _nextScreamSoundTime;
         private Vector3 _patrolTarget;
-        private float _patrolRepickAt;
-        private int _lastAttackVariant = -1;
-        private int _activeAttackVariant;
-        private Terrain _cachedTerrain;
         private Vector3 _investigatePosition;
         private IDamageable _target;
         private float _investigateUntil;
@@ -137,64 +104,6 @@ namespace Ogni.Entities.Listener
         private Quaternion _spawnRotation;
         private Renderer[] _renderers;
         private Collider[] _colliders;
-        private float _attackLockUntil;
-        private bool _clipsScanned;
-        private float _clipWalkSpeed = 1.35f, _clipRunSpeed = 2.75f, _attackClipLen;
-
-        private float AttackRange => Mathf.Min(attackDistance, clawReach);
-        private float StrikeDelay => _attackClipLen > 0.2f ? _attackClipLen * attackHitFraction : attackHitDelay;
-        private float EffectiveCooldown => (_attackClipLen > 0.2f ? Mathf.Max(attackCooldown * cooldownScale, _attackClipLen + 0.15f) : attackCooldown * cooldownScale);
-
-        // Читаем реальные скорости клипов ходьбы/бега и длину клипов атаки: ноги должны шагать в такт скорости, а не «плыть».
-        private void ScanClips()
-        {
-            if (_clipsScanned) return;
-            _clipsScanned = true;
-            if (animator == null || animator.runtimeAnimatorController == null) return;
-            float attackSum = 0f; int attackN = 0;
-            foreach (AnimationClip clip in animator.runtimeAnimatorController.animationClips)
-            {
-                if (clip == null) continue;
-                string n = clip.name.ToLowerInvariant();
-                if (n.Contains("crawl")) continue;
-                float v = clip.averageSpeed.magnitude;
-                if (n.Contains("run")) { if (v > 0.25f) _clipRunSpeed = v; }
-                else if (n.Contains("walk")) { if (v > 0.25f) _clipWalkSpeed = v; }
-                else if (n.Contains("attack") || n.Contains("neck bite"))
-                {
-                    attackSum += clip.length; attackN++;
-                }
-            }
-
-            if (attackN > 0) _attackClipLen = attackSum / attackN;
-        }
-
-        private float LocomotionAnimSpeed(float speed)
-        {
-            ScanClips();
-            float w = Mathf.InverseLerp(1.35f, 2.75f, speed);
-            float nominal = Mathf.Lerp(_clipWalkSpeed, _clipRunSpeed, w);
-            return Mathf.Clamp(speed / Mathf.Max(0.3f, nominal), 0.5f, 1.8f);
-        }
-
-        private bool NoPlayerWithin(float range)
-        {
-            if (NetworkManager == null) return false;
-            float r2 = range * range;
-            foreach (NetworkClient client in NetworkManager.ConnectedClientsList)
-            {
-                if (client.PlayerObject == null) continue;
-                if ((client.PlayerObject.transform.position - transform.position).sqrMagnitude < r2) return false;
-            }
-
-            return true;
-        }
-
-        private void DisableCorpseColliders()
-        {
-            if (!_isDying || _colliders == null) return;
-            foreach (Collider c in _colliders) if (c != null) c.enabled = false;
-        }
 
         public bool IsAttacking => Time.time < _attackAnimUntil;
         /// <summary>0..1 - фаза атаки (замах → удар → возврат), -1 - не атакует.</summary>
@@ -228,7 +137,6 @@ namespace Ogni.Entities.Listener
 
             if (animator != null)
             {
-                animator.applyRootMotion = false;
                 _speedHash = Animator.StringToHash(speedParameter);
                 _attackHash = Animator.StringToHash(attackTrigger);
                 _hitHash = Animator.StringToHash(hitTrigger);
@@ -252,8 +160,12 @@ namespace Ogni.Entities.Listener
             _colliders = GetComponentsInChildren<Collider>(true);
         }
 
+        private void OnEnable() => ThreatRegistry.Register(this);
+        private void OnDisable() => ThreatRegistry.Unregister(this);
+
         public override void OnNetworkSpawn()
         {
+            SnapToTerrainSurface();
             _spawnPosition = transform.position;
             _spawnRotation = transform.rotation;
             _hidden.OnValueChanged += OnHiddenChanged;
@@ -285,23 +197,12 @@ namespace Ogni.Entities.Listener
             if (_deathHandled) _pendingStrike = false;
             if (!IsServer || !IsAlive || _deathHandled) return;
 
-            // Далеко от всех игроков зомби не думает: с десятками зомби на карте это сильно разгружает процессор.
-            if (Time.time >= _nextFarCheck)
-            {
-                _nextFarCheck = Time.time + 0.6f;
-                _farFromPlayers = NoPlayerWithin(activeRange);
-            }
-            if (_farFromPlayers && _state.Value != State.Chase) return;
-
             if (Time.time < _staggerUntil)
             {
                 _pendingStrike = false;   // удар по монстру срывает его замах
                 _state.Value = State.Stagger;
                 return;
             }
-
-            if (_pendingStrike && _strikeTarget != null && _strikeTarget.IsAlive)
-                FaceTarget(_strikeTarget.TargetTransform.position);
 
             if (_pendingStrike && Time.time >= _strikeAt)
             {
@@ -334,7 +235,7 @@ namespace Ogni.Entities.Listener
             if (!IsServer || !IsAlive || _state.Value == State.Chase) return;
             if (noise.Source != null && noise.Source.transform.root == transform.root) return;
 
-            float effectiveRange = noise.Radius * hearingMultiplier * hearingBoost;
+            float effectiveRange = noise.Radius * hearingMultiplier;
             if ((noise.Position - transform.position).sqrMagnitude > effectiveRange * effectiveRange) return;
 
             _investigatePosition = noise.Position;
@@ -361,7 +262,7 @@ namespace Ogni.Entities.Listener
                 }
 
                 float distance = Vector3.Distance(transform.position, _target.TargetTransform.position);
-                if (distance > Mathf.Max(loseTargetDistance, chaseLoseDistance))
+                if (distance > loseTargetDistance)
                 {
                     _target = null;
                     ReturnToInvestigationOrPatrol();
@@ -371,34 +272,33 @@ namespace Ogni.Entities.Listener
 
             // Слушатель слепой: близкую цель обнаруживает по присутствию/звуку,
             // поэтому проверка прямой видимости намеренно отсутствует.
-            IDamageable nearby = FindNearestPlayer(Mathf.Max(closeDetectRadius, senseRadius));
+            IDamageable nearby = FindNearestPlayer(closeDetectRadius);
             if (nearby != null)
             {
                 _target = nearby;
                 _blockedChaseTime = 0f;
-                _state.Value = State.Chase;
+                if (_state.Value != State.Chase && Time.time >= _nextScreamSoundTime) { _nextScreamSoundTime = Time.time + 7f; GameSounds.PlayAt(GameSounds.Kind.ZombieScream, transform.position + Vector3.up * 1.6f, 0.95f, 46f, UnityEngine.Random.Range(0.84f, 1.12f)); }
+            _state.Value = State.Chase;
             }
         }
 
         private void TickPatrol()
         {
-            if (Vector3.Distance(transform.position, _patrolTarget) <= 1.2f || Time.time >= _patrolRepickAt)
-            {
+            if (Vector3.Distance(transform.position, _patrolTarget) <= 0.8f)
                 PickNewPatrolPoint();
-                _patrolRepickAt = Time.time + Random.Range(10f, 18f);
-            }
 
             MoveTowards(_patrolTarget, patrolSpeed, false);
         }
 
         private void TickInvestigate()
         {
-            IDamageable close = FindNearestPlayer(Mathf.Max(closeDetectRadius, senseRadius));
+            IDamageable close = FindNearestPlayer(closeDetectRadius);
             if (close != null)
             {
                 _target = close;
                 _blockedChaseTime = 0f;
-                _state.Value = State.Chase;
+                if (_state.Value != State.Chase && Time.time >= _nextScreamSoundTime) { _nextScreamSoundTime = Time.time + 7f; GameSounds.PlayAt(GameSounds.Kind.ZombieScream, transform.position + Vector3.up * 1.6f, 0.95f, 46f, UnityEngine.Random.Range(0.84f, 1.12f)); }
+            _state.Value = State.Chase;
                 return;
             }
 
@@ -425,14 +325,7 @@ namespace Ogni.Entities.Listener
             Vector3 targetPosition = _target.TargetTransform.position;
             float distance = Vector3.Distance(transform.position, targetPosition);
 
-            // Идёт замах/удар: стоим на месте и смотрим на жертву, а не скользим.
-            if (Time.time < _attackLockUntil)
-            {
-                FaceTarget(targetPosition);
-                return;
-            }
-
-            if (distance <= AttackRange && HasClearAttackPath(_target.TargetTransform))
+            if (distance <= attackDistance && HasClearAttackPath(_target.TargetTransform))
             {
                 _blockedChaseTime = 0f;
                 FaceTarget(targetPosition);
@@ -479,38 +372,17 @@ namespace Ogni.Entities.Listener
             delta.y = 0f;
             if (delta.sqrMagnitude < 0.001f) return;
 
-            if (Time.time < _attackLockUntil) return;
-            speed *= speedMultiplier;
-
             Vector3 direction = delta.normalized;
             FaceTarget(destination);
-
-            // Сначала разворот на месте, потом шаг: никакого скольжения боком.
-            float turnAngle = Vector3.Angle(transform.forward, direction);
-            if (turnAngle > turnInPlaceAngle) return;
-            speed *= Mathf.Clamp01(1f - turnAngle / 90f * 0.35f);
 
             float step = speed * Time.deltaTime;
             Vector3 bottom = transform.position + Vector3.up * bodyRadius;
             Vector3 top = transform.position + Vector3.up * Mathf.Max(bodyRadius, bodyHeight - bodyRadius);
 
-            // CapsuleCastAll с пропуском своих коллайдеров и террейна — иначе зомби замирал на месте, задев сам себя!
-            RaycastHit[] capHits = Physics.CapsuleCastAll(bottom, top, bodyRadius, direction,
-                step + obstacleStopDistance, obstacleMask, QueryTriggerInteraction.Ignore);
-            System.Array.Sort(capHits, (a, b) => a.distance.CompareTo(b.distance));
-            bool blocked = false;
-            RaycastHit hit = default;
-            for (int i = 0; i < capHits.Length; i++)
+            if (Physics.CapsuleCast(bottom, top, bodyRadius, direction, out RaycastHit hit,
+                    step + obstacleStopDistance, obstacleMask, QueryTriggerInteraction.Ignore))
             {
-                Collider c = capHits[i].collider;
-                if (c == null || IsSelfCollider(c) || c is TerrainCollider) continue;
-                hit = capHits[i];
-                blocked = true;
-                break;
-            }
-
-            if (blocked)
-            {
+                if (IsSelfCollider(hit.collider)) return;
 
                 if (canAttackObstacle)
                 {
@@ -535,60 +407,94 @@ namespace Ogni.Entities.Listener
                 return;
             }
 
-            Vector3 nextPos = transform.position + direction * step;
-            if (_cachedTerrain == null) _cachedTerrain = FindFirstObjectByType<Terrain>();
-            if (_cachedTerrain != null)
-            {
-                float groundY = Ogni.World.WorldLayout.SampleWorldHeight(_cachedTerrain, nextPos.x, nextPos.z);
-                if (groundY >= Ogni.World.WorldLayout.WaterLevelY - 0.1f)
-                {
-                    nextPos.y = Mathf.Lerp(transform.position.y, groundY, 1f - Mathf.Exp(-14f * Time.deltaTime));
-                }
-            }
-            transform.position = nextPos;
+            transform.position += direction * step;
+            SnapToTerrainSurface();
         }
+
+        private void SnapToTerrainSurface()
+        {
+            Terrain t = Terrain.activeTerrain;
+            if (t == null) return;
+            Vector3 p = transform.position;
+            float gy = t.SampleHeight(p) + t.transform.position.y;
+            p.y = Mathf.Lerp(p.y, gy, 0.35f);
+            if (Mathf.Abs(p.y - gy) > 1.2f) p.y = gy;
+            transform.position = p;
+        }
+
+        // Буфер для лучей: статический, чтобы не создавать массив RaycastAll каждый кадр (сервер однопоточный).
+        private static readonly RaycastHit[] PathHits = new RaycastHit[32];
+        private Transform _pathTarget;
+        private float _pathCheckedAt = -10f;
+        private bool _pathClear;
+        private const float PathRecheckInterval = 0.08f;
 
         private bool HasClearAttackPath(Transform target)
         {
             if (target == null) return false;
+
+            // TickChase вызывает проверку по 2 раза за кадр; результат живёт 0.08 с — разницы в геймплее нет.
+            if (target == _pathTarget && Time.time - _pathCheckedAt < PathRecheckInterval) return _pathClear;
+
+            bool clear = ComputeClearAttackPath(target);
+            _pathTarget = target;
+            _pathCheckedAt = Time.time;
+            _pathClear = clear;
+            return clear;
+        }
+
+        private bool ComputeClearAttackPath(Transform target)
+        {
             Vector3 from = transform.position + Vector3.up * 1f;
             Vector3 to = target.position + Vector3.up * 1f;
             Vector3 delta = to - from;
             float distance = delta.magnitude;
             if (distance <= 0.01f) return true;
 
-            RaycastHit[] hits = Physics.RaycastAll(
-                from, delta / distance, distance, obstacleMask, QueryTriggerInteraction.Ignore);
-            System.Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
+            int count = Physics.RaycastNonAlloc(
+                from, delta / distance, PathHits, distance, obstacleMask, QueryTriggerInteraction.Ignore);
 
-            for (int i = 0; i < hits.Length; i++)
+            // Берём ближайшее попадание, не относящееся к самому монстру (раньше: RaycastAll + Array.Sort).
+            float bestDistance = float.MaxValue;
+            Transform bestTransform = null;
+            for (int i = 0; i < count; i++)
             {
-                Transform hitTransform = hits[i].transform;
+                Transform hitTransform = PathHits[i].transform;
                 if (hitTransform == null || hitTransform == transform || hitTransform.IsChildOf(transform))
                     continue;
-                return hitTransform == target || hitTransform.IsChildOf(target);
+                if (PathHits[i].distance < bestDistance)
+                {
+                    bestDistance = PathHits[i].distance;
+                    bestTransform = hitTransform;
+                }
             }
-            return true;
+
+            if (bestTransform == null) return true;
+            return bestTransform == target || bestTransform.IsChildOf(target);
         }
 
         private IDamageable FindNearestPlayer(float radius)
         {
-            Collider[] hits = Physics.OverlapSphere(transform.position, radius, ~0, QueryTriggerInteraction.Ignore);
+            // Раньше: OverlapSphere по всем слоям каждый кадр + GetComponentInParent на каждом коллайдере (в лесу — десятки).
+            // Теперь перебираем только игроков из списка подключений (их максимум 4).
+            NetworkManager manager = NetworkManager;
+            if (manager == null) return null;
+
             IDamageable best = null;
             float bestSqr = radius * radius;
+            Vector3 origin = transform.position;
 
-            for (int i = 0; i < hits.Length; i++)
+            var clients = manager.ConnectedClientsList;
+            for (int i = 0; i < clients.Count; i++)
             {
-                Collider col = hits[i];
-                if (col == null || IsSelfCollider(col)) continue;
+                NetworkObject playerObject = clients[i].PlayerObject;
+                if (playerObject == null) continue;
 
-                NetworkObject networkObject = col.GetComponentInParent<NetworkObject>();
-                if (networkObject == null || !networkObject.IsPlayerObject) continue;
-
-                IDamageable candidate = col.GetComponentInParent<IDamageable>();
+                IDamageable candidate = playerObject.GetComponent<IDamageable>();
+                if (candidate == null) candidate = playerObject.GetComponentInChildren<IDamageable>();
                 if (candidate == null || !candidate.IsAlive || candidate.TargetTransform == null) continue;
 
-                float sqr = (candidate.TargetTransform.position - transform.position).sqrMagnitude;
+                float sqr = (candidate.TargetTransform.position - origin).sqrMagnitude;
                 if (sqr < bestSqr)
                 {
                     bestSqr = sqr;
@@ -602,47 +508,30 @@ namespace Ogni.Entities.Listener
         private void TryAttack(IDamageable target)
         {
             if (Time.time < _nextAttackAt || target == null || !target.IsAlive) return;
-            Vector3 toTarget = target.TargetTransform.position - transform.position;
-            toTarget.y = 0f;
-            float dist = toTarget.magnitude;
-            if (dist > AttackRange) return;
+            if (Vector3.Distance(transform.position, target.TargetTransform.position) > attackDistance) return;
 
-            ScanClips();
-            FaceTarget(target.TargetTransform.position);
-            // Не бьём в пустоту спиной/боком: ждём, пока монстр повернётся лицом к игроку.
-            if (dist > 0.25f && Vector3.Dot(transform.forward, toTarget / dist) < 0.45f) return;
-
-            _nextAttackAt = Time.time + EffectiveCooldown;
-            _attackLockUntil = Time.time + (_attackClipLen > 0.2f ? _attackClipLen * 0.85f : AttackAnimDuration);
-            int count = Mathf.Max(1, attackVariantCount);
-            int variant = Random.Range(0, count);
-            if (count > 1 && variant == _lastAttackVariant) variant = (variant + 1) % count;
-            _lastAttackVariant = variant;
-
-            AttackClientRpc(variant);
-            if (StrikeDelay <= 0f)
+            _nextAttackAt = Time.time + attackCooldown;
+            AttackClientRpc(Random.Range(0, Mathf.Max(1, attackVariantCount)));
+            if (attackHitDelay <= 0f)
             {
                 StrikeNow(target);
             }
             else
             {
                 _pendingStrike = true;
-                _strikeAt = Time.time + StrikeDelay;
+                _strikeAt = Time.time + attackHitDelay;
                 _strikeTarget = target;
             }
         }
 
-        // Касание когтей: проверяем дистанцию и направление прямо в момент удара.
+        // Касание когтей: игрок мог отскочить от замаха - тогда монстр бьёт мимо.
         private void StrikeNow(IDamageable target)
         {
             if (target == null || !target.IsAlive) return;
-            Vector3 toTarget = target.TargetTransform.position - transform.position;
-            toTarget.y = 0f;
-            float dist = toTarget.magnitude;
-            if (dist > AttackRange * Mathf.Max(attackReachTolerance, 1.35f)) return;
-            if (dist > 0.3f && Vector3.Dot(transform.forward, toTarget / dist) < 0.1f) return;
+            if (Vector3.Distance(transform.position, target.TargetTransform.position) > attackDistance * attackReachTolerance) return;
             target.ApplyDamage(attackDamage, gameObject);
             NoiseBus.Emit(transform.position, 3.5f, gameObject);
+            GameSounds.PlayAt(GameSounds.Kind.ZombieGroan, transform.position + Vector3.up * 1.6f, 0.85f, 32f, UnityEngine.Random.Range(0.85f, 1.12f));
         }
 
         public void ApplyDamage(float amount, GameObject source)
@@ -650,12 +539,9 @@ namespace Ogni.Entities.Listener
             if (!IsServer || amount <= 0f || !IsAlive || _deathHandled) return;
 
             _health.Value = Mathf.Max(0f, _health.Value - amount);
-            if (_health.Value > 0f)
-            {
-                _staggerUntil = Time.time + hitStaggerDuration * staggerScale;
-                _state.Value = State.Stagger;
-                HitClientRpc();
-            }
+            _staggerUntil = Time.time + hitStaggerDuration;
+            _state.Value = State.Stagger;
+            HitClientRpc();
 
             if (source != null)
             {
@@ -696,7 +582,7 @@ namespace Ogni.Entities.Listener
 
             NoiseBus.Emit(transform.position, 20f, gameObject);
             if (NetworkObject != null && NetworkObject.IsSpawned)
-                Invoke(nameof(HideAfterDeath), corpseLingerSeconds);
+                Invoke(nameof(HideAfterDeath), 2.5f);
             else
                 Destroy(gameObject);
         }
@@ -776,7 +662,6 @@ namespace Ogni.Entities.Listener
         [ClientRpc]
         private void AttackClientRpc(int variant)
         {
-            _activeAttackVariant = variant;
             _attackAnimStart = Time.time;
             _attackAnimUntil = Time.time + AttackAnimDuration;
             if (animator != null && _hasAttack)
@@ -798,10 +683,6 @@ namespace Ogni.Entities.Listener
         {
             _isDying = true;
             _deathStartedAt = Time.time;
-            _attackLockUntil = 0f;
-            if (animator != null) animator.speed = 1f;
-            CancelInvoke(nameof(DisableCorpseColliders));
-            Invoke(nameof(DisableCorpseColliders), 0.5f);
             if (animator != null && _hasDeath)
             {
                 if (_hasDeathVar) animator.SetInteger(_deathVarHash, variant);
@@ -820,25 +701,8 @@ namespace Ogni.Entities.Listener
             _animSpeed = Mathf.Lerp(_animSpeed, rawSpeed, 1f - Mathf.Exp(-10f * dt));
             float speed = _animSpeed;
 
-            // Труп не исчезает мгновенно: лежит, а в последние секунды уходит под землю.
-            float sinkOffset = 0f;
-            if (_isDying)
-            {
-                float sinkStart = Mathf.Max(2f, corpseLingerSeconds - corpseSinkSeconds);
-                float since = Time.time - _deathStartedAt;
-                if (since > sinkStart) sinkOffset = 0.95f * Mathf.SmoothStep(0f, 1f, (since - sinkStart) / corpseSinkSeconds);
-                if (visualRig != null && animator != null && animator.runtimeAnimatorController != null)
-                    visualRig.localPosition = new Vector3(0f, -sinkOffset, 0f);
-            }
-
             if (animator != null)
             {
-                // Скорость проигрывания шага подгоняем под реальную скорость тела - зомби идёт, а не плывёт.
-                bool locomotion = !_isDying && Time.time >= _attackAnimUntil && Time.time >= _hitAnimUntil
-                                  && _health.Value > maxHealth * 0.35f && _state.Value != State.Stagger;
-                float animMul = locomotion && speed > 0.2f ? LocomotionAnimSpeed(speed) : 1f;
-                animator.speed = _isDying ? 1f : Mathf.Lerp(animator.speed, animMul, 1f - Mathf.Exp(-8f * dt));
-
                 if (_hasSpeed) animator.SetFloat(_speedHash, _animSpeed);
                 if (_hasCrawl)
                 {
@@ -866,7 +730,7 @@ namespace Ogni.Entities.Listener
                     Time.deltaTime * 12f);
                 visualRig.localPosition = Vector3.Lerp(
                     visualRig.localPosition,
-                    new Vector3(0f, 0.18f * ease - sinkOffset, 0f),
+                    new Vector3(0f, 0.18f * ease, 0f),
                     Time.deltaTime * 12f);
                 visualRig.localScale = Vector3.one;
                 return;
@@ -894,15 +758,13 @@ namespace Ogni.Entities.Listener
                 // Замах: монстр отклоняется назад и приседает, затем резко бросается вперёд и возвращается.
                 float pr = AttackProgress;
                 float imp = AttackImpact01;
-                float sideSign = (_activeAttackVariant % 2 == 0) ? 1f : -1f;
-                float pitchA = AttackCurve(pr, imp, 0f, -16f, _activeAttackVariant == 2 ? 46f : 34f);
-                float yawA = AttackCurve(pr, imp, 0f, -20f * sideSign, 28f * sideSign);
-                float zA = AttackCurve(pr, imp, 0f, -0.14f, _activeAttackVariant == 3 ? 0.52f : 0.36f);
+                float pitchA = AttackCurve(pr, imp, 0f, -16f, 38f);
+                float zA = AttackCurve(pr, imp, 0f, -0.14f, 0.42f);
                 float yA = AttackCurve(pr, imp, 0f, -0.05f, 0.06f);
-                float rollA = AttackCurve(pr, imp, 0f, -8f * sideSign, 10f * sideSign);
+                float rollA = AttackCurve(pr, imp, 0f, -4f, 5f);
                 visualRig.localRotation = Quaternion.Slerp(
                     visualRig.localRotation,
-                    Quaternion.Euler(pitchA, yawA, rollA),
+                    Quaternion.Euler(pitchA, 0f, rollA),
                     1f - Mathf.Exp(-34f * Time.deltaTime));
                 visualRig.localPosition = Vector3.Lerp(
                     visualRig.localPosition,
@@ -971,21 +833,8 @@ namespace Ogni.Entities.Listener
 
         private void PickNewPatrolPoint()
         {
-            // Перекрываем старое сериализованное значение в префабе, чтобы зомби широко бродили по карте.
-            float radius = Mathf.Max(patrolRadius, 36f);
-            for (int i = 0; i < 6; i++)
-            {
-                Vector2 offset = Random.insideUnitCircle.normalized * Random.Range(12f, radius);
-                Vector3 cand = transform.position + new Vector3(offset.x, 0f, offset.y);
-                cand.x = Mathf.Clamp(cand.x, -Ogni.World.WorldLayout.BoundX + 14f, Ogni.World.WorldLayout.BoundX - 14f);
-                cand.z = Mathf.Clamp(cand.z, Ogni.World.WorldLayout.BoundMinZ + 14f, Ogni.World.WorldLayout.BoundMaxZ - 14f);
-                if (!Ogni.World.WorldLayout.InLakeOrShore(cand.x, cand.z, 2f))
-                {
-                    _patrolTarget = cand;
-                    return;
-                }
-            }
-            _patrolTarget = _spawnPosition;
+            Vector2 offset = Random.insideUnitCircle * patrolRadius;
+            _patrolTarget = _spawnPosition + new Vector3(offset.x, 0f, offset.y);
         }
 
 #if UNITY_EDITOR
@@ -994,7 +843,7 @@ namespace Ogni.Entities.Listener
             Gizmos.color = Color.yellow;
             Gizmos.DrawWireSphere(transform.position, closeDetectRadius);
             Gizmos.color = Color.red;
-            Gizmos.DrawWireSphere(transform.position, Mathf.Min(attackDistance, clawReach));
+            Gizmos.DrawWireSphere(transform.position, attackDistance);
             Gizmos.color = Color.cyan;
             Gizmos.DrawWireSphere(Application.isPlaying ? _spawnPosition : transform.position, patrolRadius);
         }

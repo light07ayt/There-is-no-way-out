@@ -112,14 +112,49 @@ namespace Ogni.Player
 
         private void OnLocalSwung(PlayerEquipment.ToolSlot slot)
         {
-            if (_rig != null) _rig.TriggerAttack();
-            if (IsSpawned) TriggerAttackServerRpc();
+            bool unarmed = slot == PlayerEquipment.ToolSlot.Unarmed;
+            if (_rig != null) _rig.TriggerAttack(unarmed);
+            if (IsSpawned) TriggerAttackServerRpc(unarmed);
         }
 
         [ServerRpc]
         private void SubmitAppearanceServerRpc(CharacterAppearance appearance)
         {
+            // Сервер гарантирует уникальность слота (строго 2 девушки + 2 парня без повторов) и фильтрует имя.
+            byte assignedSlot = AllocateUniqueRosterSlot(appearance.ModelIndex);
+            SquadRoster.CharacterSlot slot = SquadRoster.GetSlot(assignedSlot);
+            bool en = GameSettings.Language == GameLanguage.English;
+            string cleanName = NameProfanityFilter.SanitizeOrFallback(appearance.PlayerName.ToString(), slot.GetDisplayName(en));
+
+            appearance.ModelIndex = slot.SlotIndex;
+            appearance.Gender = slot.Gender;
+            appearance.PlayerName = cleanName;
             _appearance.Value = appearance;
+        }
+
+        private byte AllocateUniqueRosterSlot(byte requestedSlot)
+        {
+            int req = requestedSlot % SquadRoster.SquadSize;
+            bool[] used = new bool[SquadRoster.SquadSize];
+            foreach (PlayerAppearanceSync other in FindObjectsByType<PlayerAppearanceSync>(FindObjectsSortMode.None))
+            {
+                if (other == null || other == this || !other.IsSpawned) continue;
+                int otherSlot = other._appearance.Value.ModelIndex % SquadRoster.SquadSize;
+                if (!other._appearance.Value.PlayerName.IsEmpty) used[otherSlot] = true;
+            }
+
+            if (!used[req]) return (byte)req;
+
+            // Сначала пробуем второй слот того же пола (0<->1 девушки, 2<->3 парни).
+            int sameGenderAlt = req ^ 1;
+            if (!used[sameGenderAlt]) return (byte)sameGenderAlt;
+
+            // Иначе берём любой свободный слот из четвёрки.
+            for (int i = 0; i < SquadRoster.SquadSize; i++)
+            {
+                if (!used[i]) return (byte)i;
+            }
+            return (byte)req;
         }
 
         [ServerRpc]
@@ -138,17 +173,17 @@ namespace Ogni.Player
         }
 
         [ServerRpc]
-        private void TriggerAttackServerRpc()
+        private void TriggerAttackServerRpc(bool unarmed)
         {
-            TriggerAttackClientRpc();
+            TriggerAttackClientRpc(unarmed);
         }
 
         [ClientRpc]
-        private void TriggerAttackClientRpc()
+        private void TriggerAttackClientRpc(bool unarmed)
         {
             if (!IsOwner && _rig != null)
             {
-                _rig.TriggerAttack();
+                _rig.TriggerAttack(unarmed);
             }
         }
     }

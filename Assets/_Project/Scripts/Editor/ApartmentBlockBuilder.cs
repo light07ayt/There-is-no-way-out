@@ -274,6 +274,16 @@ namespace Ogni.EditorTools
             DoorLeaf(c, t, new Vector3(side * (CoreHalf + 6f), y0, 2.1f), true, 0.96f, c.K.Chance(0.5f));
             DoorLeaf(c, t, new Vector3(side * (CoreHalf + 6f), y0, -2.4f), true, 0.96f, c.K.Chance(0.5f));
 
+            // Зоны перед дверями (одни и те же координаты, что и у DoorLeaf выше).
+            DoorZones.Clear();
+            AddDoorZone(side * CoreHalf, 3.8f, true, 1.16f);
+            AddDoorZone(side * CoreHalf, 0.6f, true, 0.96f);
+            AddDoorZone(side * (CoreHalf + 3.5f), 4.2f, true, 0.96f);
+            AddDoorZone(side * (CoreHalf + 2.5f), -4f, true, 0.96f);
+            AddDoorZone(side * (CoreHalf + 1.2f), 0f, false, 0.86f);
+            AddDoorZone(side * (CoreHalf + 6f), 2.1f, true, 0.96f);
+            AddDoorZone(side * (CoreHalf + 6f), -2.4f, true, 0.96f);
+
             FurnishFrontLiving(c, t, side, y0);
             FurnishFrontBedroom(c, t, side, y0);
             FurnishHall(c, t, side, y0);
@@ -303,17 +313,17 @@ namespace Ogni.EditorTools
             Decal(t, c.M.StainDecal, new Vector3(side * (CoreHalf + c.K.Range(1.5f, 4.5f)), y0 + WallHeight - 0.01f, c.K.Range(-4f, 4f)), Vector3.down, new Vector2(2.2f, 2.2f), c.K.Range(0f, 360f));
 
             // Лут-точки для будущих контейнеров и декоративные ящики.
-            LootPoint(c, t, Mirror(side, c.K.Range(0.8f, 5.2f), y0, c.K.Range(1.8f, 4.8f)), "Front");
-            LootPoint(c, t, Mirror(side, c.K.Range(0.8f, 5.2f), y0, c.K.Range(-4.8f, 0.6f)), "Back");
+            LootPoint(c, t, Nudge(Mirror(side, c.K.Range(0.8f, 5.2f), y0, c.K.Range(1.8f, 4.8f))), "Front");
+            LootPoint(c, t, Nudge(Mirror(side, c.K.Range(0.8f, 5.2f), y0, c.K.Range(-4.8f, 0.6f))), "Back");
             if (c.K.Chance(0.6f))
             {
-                LootPoint(c, t, Mirror(side, c.K.Range(3.6f, 5.4f), y0, c.K.Range(-4.8f, -1.2f)), "Bedroom");
+                LootPoint(c, t, Nudge(Mirror(side, c.K.Range(3.6f, 5.4f), y0, c.K.Range(-4.8f, -1.2f))), "Bedroom");
             }
 
-            LootPoint(c, t, Mirror(side, c.K.Range(7.2f, 9.2f), y0, c.K.Range(1.8f, 4.8f)), "WingFront");
+            LootPoint(c, t, Nudge(Mirror(side, c.K.Range(7.2f, 9.2f), y0, c.K.Range(1.8f, 4.8f))), "WingFront");
             if (c.K.Chance(0.7f))
             {
-                LootPoint(c, t, Mirror(side, c.K.Range(7.2f, 9.2f), y0, c.K.Range(-4.8f, 0.4f)), "WingBack");
+                LootPoint(c, t, Nudge(Mirror(side, c.K.Range(7.2f, 9.2f), y0, c.K.Range(-4.8f, 0.4f))), "WingBack");
             }
         }
 
@@ -329,32 +339,30 @@ namespace Ogni.EditorTools
                 k.Chair(t, Mirror(side, 2.5f, y0, 4.4f), Yaw(side, -90f), k.Chance(0.5f));
             }
 
-            if (k.Chance(0.55f)) k.Bookshelf(t, Mirror(side, 0.4f, y0, 5.1f), Yaw(side, 90f));
-            if (k.Chance(0.55f)) k.Planks(t, Mirror(side, k.Range(0.8f, 3f), y0, k.Range(1.8f, 5f)), 4);
+            // Шкаф у северной стены (раньше стоял торцом у входа и частично в стене).
+            if (k.Chance(0.55f)) k.Bookshelf(t, Mirror(side, 2.9f, y0, 5.22f), Yaw(side, 0f));
+            if (k.Chance(0.55f)) k.Planks(t, Nudge(Mirror(side, k.Range(0.8f, 3f), y0, k.Range(1.8f, 5f))), 4);
             if (k.Chance(0.5f)) k.Radiator(t, Mirror(side, 1.8f, y0, 5.25f), Yaw(side, 0f));
             if (k.Chance(0.4f)) k.PottedPlant(t, Mirror(side, 3.1f, y0, 2.2f), k.Range(0.8f, 1.2f));
             if (k.Chance(0.45f)) k.Rug(t, Mirror(side, 1.8f, y0 + RugY, 3.4f), Yaw(side, 0f), 2.4f, 2.2f);
-            if (k.Chance(0.75f)) k.CeilingLamp(t, Mirror(side, 1.8f, y0 + WallHeight, 3.3f));
-            if (k.Chance(0.65f)) k.WallPicture(t, Mirror(side, 2.1f, y0 + 1.65f, 1.32f), Yaw(side, 0f), 0.85f, 0.58f);
-            if (k.Chance(0.55f)) k.FloorLamp(t, Mirror(side, 3.15f, y0, 4.95f));
-            if (k.Chance(0.35f)) k.TrashPile(t, Mirror(side, k.Range(0.8f, 3f), y0, k.Range(1.8f, 3.2f)), 0.5f);
+            if (k.Chance(0.35f)) k.TrashPile(t, Nudge(Mirror(side, k.Range(0.8f, 3f), y0, k.Range(1.8f, 3.2f))), 0.5f);
         }
 
         private static void FurnishFrontBedroom(Ctx c, Transform t, int side, float y0)
         {
             PropKit k = c.K;
-            if (k.Chance(0.85f)) k.Bed(t, Mirror(side, 5f, y0, 4f), Yaw(side, 90f));
-            if (k.Chance(0.7f)) k.Wardrobe(t, Mirror(side, 4f, y0, 1.75f), Yaw(side, 0f));
+            // Кровать вдоль восточной стены (изголовьем к югу): между ней и дверью (u=3.5, z=4.2) остаётся проход ~1.2 м.
+            // Раньше кровать стояла торцом в 0.5 м от двери, а кроватка перекрывала проход с юга.
+            if (k.Chance(0.85f)) k.Bed(t, Mirror(side, 5.3f, y0, 4.35f), Yaw(side, 0f));
+            if (k.Chance(0.7f)) k.Wardrobe(t, Mirror(side, 4.2f, y0, 1.75f), Yaw(side, 0f));
             if (k.Chance(0.6f))
             {
-                k.Table(t, Mirror(side, 4.8f, y0, 2.6f), Yaw(side, 0f), 0.9f, 0.6f);
-                k.Chair(t, Mirror(side, 4.8f, y0, 3.2f), Yaw(side, 180f), k.Chance(0.4f));
+                k.Table(t, Mirror(side, 4.6f, y0, 2.6f), Yaw(side, 0f), 0.9f, 0.6f);
+                k.Chair(t, Mirror(side, 4.6f, y0, 3.2f), Yaw(side, 180f), k.Chance(0.4f));
             }
 
-            if (k.Chance(0.4f)) k.Crib(t, Mirror(side, 4.1f, y0, 3.4f), Yaw(side, 90f));
-            if (k.Chance(0.7f)) k.CeilingLamp(t, Mirror(side, 4.8f, y0 + WallHeight, 3.4f));
-            if (k.Chance(0.6f)) k.WallPicture(t, Mirror(side, 4.8f, y0 + 1.60f, 1.32f), Yaw(side, 0f), 0.68f, 0.50f);
-            if (k.Chance(0.5f)) k.Suitcase(t, Mirror(side, k.Range(3.8f, 5.4f), y0, k.Range(1.8f, 4.8f)));
+            if (k.Chance(0.4f)) k.Crib(t, Mirror(side, 4.2f, y0, 5.08f), Yaw(side, 90f));
+            if (k.Chance(0.5f)) k.Suitcase(t, Mirror(side, k.Range(3.65f, 4.2f), y0, k.Range(3.05f, 3.4f)));
             if (k.Chance(0.4f)) k.PottedPlant(t, Mirror(side, 5.6f, y0, 1.7f), k.Range(0.7f, 1f));
         }
 
@@ -362,9 +370,11 @@ namespace Ogni.EditorTools
         {
             PropKit k = c.K;
             // Прихожая узкая (z 0.1..1.1) и ведёт в спальню - проход держим свободным.
-            if (k.Chance(0.6f)) k.Cabinet(t, Mirror(side, 2.15f, y0, 0.95f), Yaw(side, 0f));
-            if (k.Chance(0.5f)) k.Crate(t, Mirror(side, 3.3f, y0, 0.85f), Yaw(side, k.Range(-15f, 15f)), 0.6f);
-            if (k.Chance(0.45f)) k.Debris(t, Mirror(side, 1.0f, y0, 0.9f), 0.3f, 4, false);
+            // Проход из прихожей в заднюю спальню был ~0.55-0.75 м (шкаф + ящик): игрок упирался в мебель.
+            // Теперь шкаф и ящик стоят у северной стены уже внутри спальни, а прихожая свободна.
+            if (k.Chance(0.6f)) k.Cabinet(t, Mirror(side, 4.6f, y0, 0.9f), Yaw(side, 0f));
+            if (k.Chance(0.5f)) k.Crate(t, Mirror(side, 5.6f, y0, 0.75f), Yaw(side, k.Range(-15f, 15f)), 0.6f);
+            if (k.Chance(0.45f)) k.Debris(t, Mirror(side, 2.6f, y0, 0.7f), 0.3f, 4, false);
         }
 
         private static void FurnishKitchen(Ctx c, Transform t, int side, float y0)
@@ -372,17 +382,15 @@ namespace Ogni.EditorTools
             PropKit k = c.K;
             if (k.Chance(0.9f)) k.KitchenCounter(t, Mirror(side, 0.9f, y0, -5.15f), Yaw(side, 0f), 1.6f);
             if (k.Chance(0.8f)) k.Stove(t, Mirror(side, 2.1f, y0, -5.15f), Yaw(side, 0f));
-            if (k.Chance(0.75f)) k.Fridge(t, Mirror(side, 0.35f, y0, -3.2f), Yaw(side, 90f));
+            if (k.Chance(0.75f)) k.Fridge(t, Mirror(side, 0.45f, y0, -3.2f), Yaw(side, 90f));
             if (k.Chance(0.65f))
             {
                 k.Table(t, Mirror(side, 1.2f, y0, -3.4f), Yaw(side, 0f), 0.8f, 0.6f);
                 k.Chair(t, Mirror(side, 1.2f, y0, -2.8f), Yaw(side, 180f), k.Chance(0.5f));
             }
 
-            if (k.Chance(0.7f)) k.WallClock(t, Mirror(side, 1.3f, y0 + 1.85f, -2.62f), Yaw(side, 180f));
-            if (k.Chance(0.7f)) k.CeilingLamp(t, Mirror(side, 1.2f, y0 + WallHeight, -3.9f));
-            if (k.Chance(0.5f)) k.Debris(t, Mirror(side, k.Range(0.6f, 2.1f), y0, k.Range(-5f, -2.8f)), 0.6f, 6, false);
-            if (k.Chance(0.35f)) k.TrashPile(t, Mirror(side, k.Range(0.6f, 2.1f), y0, k.Range(-4.8f, -3f)), 0.4f);
+            if (k.Chance(0.5f)) k.Debris(t, Nudge(Mirror(side, k.Range(0.6f, 2.1f), y0, k.Range(-5f, -2.8f))), 0.6f, 6, false);
+            if (k.Chance(0.35f)) k.TrashPile(t, Nudge(Mirror(side, k.Range(0.6f, 2.1f), y0, k.Range(-4.8f, -3f))), 0.4f);
         }
 
         private static void FurnishBath(Ctx c, Transform t, int side, float y0)
@@ -390,11 +398,7 @@ namespace Ogni.EditorTools
             PropKit k = c.K;
             if (k.Chance(0.85f)) k.Bathtub(t, Mirror(side, 1.25f, y0, -2.15f), Yaw(side, 0f));
             if (k.Chance(0.8f)) k.Toilet(t, Mirror(side, 0.35f, y0, -0.85f), Yaw(side, 90f));
-            if (k.Chance(0.65f))
-            {
-                k.Sink(t, Mirror(side, 2.1f, y0, -0.85f), Yaw(side, -90f));
-                k.MirrorFrame(t, Mirror(side, 2.38f, y0 + 1.48f, -0.85f), Yaw(side, -90f), 0.52f, 0.72f);
-            }
+            if (k.Chance(0.65f)) k.Sink(t, Mirror(side, 2.1f, y0, -0.85f), Yaw(side, -90f));
             if (k.Chance(0.45f)) k.WashingMachine(t, Mirror(side, 2.1f, y0, -0.35f), Yaw(side, -90f));
         }
 
@@ -413,11 +417,9 @@ namespace Ogni.EditorTools
             if (k.Chance(0.5f)) k.Bookshelf(t, Mirror(side, 9.65f, y0, 4.9f), Yaw(side, 90f));
             if (k.Chance(0.4f)) k.Crib(t, Mirror(side, 7.2f, y0, 3.2f), Yaw(side, 90f));
             if (k.Chance(0.45f)) k.Rug(t, Mirror(side, 8.3f, y0 + RugY, 3.5f), Yaw(side, 0f), 2.2f, 1.8f);
-            if (k.Chance(0.4f)) k.Suitcase(t, Mirror(side, k.Range(7f, 9.4f), y0, k.Range(1.8f, 5f)));
-            if (k.Chance(0.7f)) k.CeilingLamp(t, Mirror(side, 8.2f, y0 + WallHeight, 3.3f));
-            if (k.Chance(0.55f)) k.WallPicture(t, Mirror(side, 8.2f, y0 + 1.62f, 1.32f), Yaw(side, 0f), 0.76f, 0.54f);
+            if (k.Chance(0.4f)) k.Suitcase(t, Nudge(Mirror(side, k.Range(7f, 9.4f), y0, k.Range(1.8f, 5f))));
             if (k.Chance(0.35f)) k.PottedPlant(t, Mirror(side, 9.5f, y0, 1.7f), k.Range(0.7f, 1f));
-            if (k.Chance(0.35f)) k.TrashPile(t, Mirror(side, k.Range(7f, 9.2f), y0, k.Range(1.8f, 5f)), 0.45f);
+            if (k.Chance(0.35f)) k.TrashPile(t, Nudge(Mirror(side, k.Range(7f, 9.2f), y0, k.Range(1.8f, 5f))), 0.45f);
         }
 
         private static void FurnishWingBack(Ctx c, Transform t, int side, float y0)
@@ -434,26 +436,27 @@ namespace Ogni.EditorTools
             if (k.Chance(0.5f)) k.Bookshelf(t, Mirror(side, 9.65f, y0, 0.2f), Yaw(side, 90f));
             if (k.Chance(0.45f)) k.Radiator(t, Mirror(side, 9.75f, y0, -1.4f), Yaw(side, 90f));
             if (k.Chance(0.45f)) k.Cabinet(t, Mirror(side, 7.0f, y0, 0.5f), Yaw(side, 0f));
-            if (k.Chance(0.4f)) k.Planks(t, Mirror(side, k.Range(7f, 9.4f), y0, k.Range(-4.8f, 0.4f)), 3);
-            if (k.Chance(0.4f)) k.Debris(t, Mirror(side, k.Range(7f, 9.4f), y0, k.Range(-4.8f, 0.4f)), 0.5f, 5, false);
-            if (k.Chance(0.35f)) k.Suitcase(t, Mirror(side, k.Range(7f, 9.4f), y0, k.Range(-4.8f, 0.4f)));
+            if (k.Chance(0.4f)) k.Planks(t, Nudge(Mirror(side, k.Range(7f, 9.4f), y0, k.Range(-4.8f, 0.4f))), 3);
+            if (k.Chance(0.4f)) k.Debris(t, Nudge(Mirror(side, k.Range(7f, 9.4f), y0, k.Range(-4.8f, 0.4f))), 0.5f, 5, false);
+            if (k.Chance(0.35f)) k.Suitcase(t, Nudge(Mirror(side, k.Range(7f, 9.4f), y0, k.Range(-4.8f, 0.4f))));
         }
 
         private static void FurnishBackBedroom(Ctx c, Transform t, int side, float y0)
         {
             PropKit k = c.K;
-            if (k.Chance(0.8f)) k.Bed(t, Mirror(side, 5f, y0, -4f), Yaw(side, 90f));
+            if (k.Chance(0.8f)) k.Bed(t, Mirror(side, 4.9f, y0, -4f), Yaw(side, 90f));
             if (k.Chance(0.7f)) k.Wardrobe(t, Mirror(side, 3.2f, y0, -5.15f), Yaw(side, 0f));
-            if (k.Chance(0.55f)) k.Bookshelf(t, Mirror(side, 5.6f, y0, -1f), Yaw(side, 180f));
+            if (k.Chance(0.55f)) k.Bookshelf(t, Mirror(side, 5.3f, y0, -1f), Yaw(side, 180f));
             if (k.Chance(0.55f))
             {
                 k.Table(t, Mirror(side, 4f, y0, -1.5f), Yaw(side, 0f), 1f, 0.6f);
                 k.Chair(t, Mirror(side, 4f, y0, -2f), Yaw(side, 180f), k.Chance(0.4f));
             }
 
-            if (k.Chance(0.45f)) k.Radiator(t, Mirror(side, 4.2f, y0, 0.15f), Yaw(side, 0f));
-            if (k.Chance(0.45f)) k.Planks(t, Mirror(side, k.Range(2.8f, 5.4f), y0, k.Range(-4.8f, -1f)), 3);
-            if (k.Chance(0.35f)) k.Suitcase(t, Mirror(side, k.Range(2.8f, 5.4f), y0, k.Range(-4.8f, -1f)));
+            // Радиатор у северной стены спальни (раньше висел посреди комнаты на z=0.15).
+            if (k.Chance(0.45f)) k.Radiator(t, Mirror(side, 3.0f, y0, 1.04f), Yaw(side, 180f));
+            if (k.Chance(0.45f)) k.Planks(t, Nudge(Mirror(side, k.Range(2.8f, 5.4f), y0, k.Range(-4.8f, -1f))), 3);
+            if (k.Chance(0.35f)) k.Suitcase(t, Nudge(Mirror(side, k.Range(2.8f, 5.4f), y0, k.Range(-4.8f, -1f))));
         }
 
         private static int _doorCounter;
@@ -530,6 +533,41 @@ namespace Ogni.EditorTools
             {
                 PropKit.Box(marker.transform, "LootCloth", new Vector3(0.12f, 0.38f, 0.04f), new Vector3(0.22f, 0.06f, 0.18f), c.M.Fabric, false);
             }
+        }
+
+        // Зоны перед дверями (квартира в локальных координатах): x0, x1, z0, z1 + ось прохода.
+        // Мелкие случайные предметы (доски, мусор, чемоданы, ящики) выталкиваются из этих зон, чтобы не загораживать проёмы.
+        private struct DoorZone
+        {
+            public float X0, X1, Z0, Z1;
+            public bool AlongZ;   // стена идёт вдоль Z: проход по X, выталкиваем предмет вдоль Z
+        }
+
+        private static readonly List<DoorZone> DoorZones = new List<DoorZone>();
+
+        private static void AddDoorZone(float cx, float cz, bool alongZ, float width)
+        {
+            const float depth = 0.95f;
+            float half = width * 0.5f + 0.25f;
+            DoorZones.Add(alongZ
+                ? new DoorZone { X0 = cx - depth, X1 = cx + depth, Z0 = cz - half, Z1 = cz + half, AlongZ = true }
+                : new DoorZone { X0 = cx - half, X1 = cx + half, Z0 = cz - depth, Z1 = cz + depth, AlongZ = false });
+        }
+
+        /// <summary>Сдвигает предмет за пределы дверных зон текущей квартиры (без обращения к генератору случайных чисел).</summary>
+        private static Vector3 Nudge(Vector3 p)
+        {
+            for (int i = 0; i < DoorZones.Count; i++)
+            {
+                DoorZone zn = DoorZones[i];
+                if (p.x < zn.X0 || p.x > zn.X1 || p.z < zn.Z0 || p.z > zn.Z1) continue;
+                if (zn.AlongZ)
+                    p.z = (p.z - zn.Z0 < zn.Z1 - p.z) ? zn.Z0 - 0.1f : zn.Z1 + 0.1f;
+                else
+                    p.x = (p.x - zn.X0 < zn.X1 - p.x) ? zn.X0 - 0.1f : zn.X1 + 0.1f;
+            }
+
+            return p;
         }
 
         private static Vector3 Mirror(int side, float u, float y, float z) => new Vector3(side * (CoreHalf + u), y, z);

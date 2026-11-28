@@ -68,8 +68,6 @@ namespace Ogni.EditorTools
 
             BuildInterior(car.transform, spec, ab);
             BuildDetails(car.transform, spec, mats, ab, hw, rng);
-            BuildExtraDetails(car.transform, spec, mats, ab, hw, rng);
-            BuildExtraInterior(car.transform, spec, ab, mats);
             BuildWheels(car.transform, spec, mats, ab, rng);
 
             // Двери закрыты заподлицо с кузовом; добавлены боковые зеркала и ручки.
@@ -236,12 +234,9 @@ namespace Ogni.EditorTools
             PropKit.Box(car, "Grille", new Vector3(0f, 0.6f, s.Body[s.Body.Length - 1].z + 0.02f), new Vector3(0.9f, 0.2f, 0.05f), ab.Plastic, false);
 
             float noseZ = s.Body[s.Body.Length - 1].z;
-            float tailZ = s.Body[0].z;
             for (int side = -1; side <= 1; side += 2)
             {
-                PropKit.Box(car, "HeadlightHousing", new Vector3(side * 0.62f, 0.64f, noseZ + 0.02f), new Vector3(0.34f, 0.17f, 0.05f), ab.Plastic, false);
-                PropKit.Box(car, "Headlight", new Vector3(side * 0.62f, 0.64f, noseZ + 0.05f), new Vector3(0.28f, 0.13f, 0.03f), mats.StainedAmber ?? mats.DarkGlass, false);
-                PropKit.Box(car, "Taillight", new Vector3(side * 0.64f, 0.68f, tailZ - 0.04f), new Vector3(0.30f, 0.14f, 0.04f), mats.FuelCanRed ?? mats.DarkGlass, false);
+                PropKit.Box(car, "Headlight", new Vector3(side * 0.62f, 0.64f, noseZ + 0.03f), new Vector3(0.3f, 0.15f, 0.06f), mats.DarkGlass, false);
                 PropKit.Box(car, "Taillight", new Vector3(side * 0.66f, 0.66f, s.Body[0].z - 0.02f), new Vector3(0.24f, 0.12f, 0.05f), ab.BurntMetal, false);
                 PropKit.Box(car, "Mirror", new Vector3(side * (hw + 0.1f), s.BeltY + 0.1f, s.WsBaseZ - 0.1f), new Vector3(0.16f, 0.1f, 0.08f), ab.Plastic, false);
                 PropKit.Box(car, "DoorSeamF", new Vector3(side * (hw - 0.005f), 0.7f, s.WsBaseZ - 0.9f), new Vector3(0.01f, 0.55f, 0.02f), ab.Rubber, false);
@@ -254,150 +249,6 @@ namespace Ogni.EditorTools
 
             GameObject exhaust = PropKit.Cylinder(car, "Exhaust", new Vector3(0.55f, 0.28f, s.Body[0].z - 0.12f), new Vector3(0.08f, 0.14f, 0.08f), mats.RustyMetal, false);
             exhaust.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
-        }
-
-        // Высота верхней линии кузова (капот/багажник) на заданной координате z - по сечениям лофта.
-        private static float BodyTopAt(Spec s, float z)
-        {
-            MeshKit.Section[] b = s.Body;
-            if (z <= b[0].z) return b[0].top;
-            for (int i = 0; i < b.Length - 1; i++)
-            {
-                if (z <= b[i + 1].z)
-                {
-                    float t = Mathf.InverseLerp(b[i].z, b[i + 1].z, z);
-                    return Mathf.Lerp(b[i].top, b[i + 1].top, t);
-                }
-            }
-
-            return b[b.Length - 1].top;
-        }
-
-        /// <summary>
-        /// Реалистичные мелочи кузова: арки колёс, молдинги, пороги, щётки стеклоочистителей, нормальные зеркала с корпусом и стеклом,
-        /// швы капота, лючок бака, антенна, передний номер, днище. Снаружи машина перестаёт быть «гладкой коробкой».
-        /// </summary>
-        private static void BuildExtraDetails(Transform car, Spec s, ProceduralMaterialLibrary mats, AbandonedMaterials ab, float hw, System.Random rng)
-        {
-            float noseZ = s.Body[s.Body.Length - 1].z;
-            float tailZ = s.Body[0].z;
-            float midZ = (noseZ + tailZ) * 0.5f;
-            float bodyLen = noseZ - tailZ;
-
-            // Днище: чтобы под машиной не было прозрачной дыры.
-            PropKit.Box(car, "Underbody", new Vector3(0f, 0.30f, midZ), new Vector3(hw * 2f - 0.1f, 0.06f, bodyLen - 0.3f), ab.Rubber, false);
-
-            foreach (int side in new[] { -1, 1 })
-            {
-                float x = side * hw;
-
-                // Колёсные арки: тёмный «бровной» молдинг над каждым колесом.
-                foreach (float axle in new[] { s.FrontAxleZ, s.RearAxleZ })
-                {
-                    PropKit.Box(car, "ArchTrim", new Vector3(x + side * 0.012f, 0.70f, axle), new Vector3(0.05f, 0.05f, 0.92f), ab.Rubber, false);
-                    PropKit.Box(car, "ArchLipF", new Vector3(x + side * 0.012f, 0.60f, axle + 0.43f), new Vector3(0.05f, 0.22f, 0.05f), ab.Rubber, false);
-                    PropKit.Box(car, "ArchLipR", new Vector3(x + side * 0.012f, 0.60f, axle - 0.43f), new Vector3(0.05f, 0.22f, 0.05f), ab.Rubber, false);
-                }
-
-                // Боковой молдинг по линии пояса и нижний порог.
-                PropKit.Box(car, "BeltMolding", new Vector3(x + side * 0.008f, s.BeltY - 0.05f, midZ), new Vector3(0.02f, 0.035f, bodyLen - 0.9f), ab.MetalPainted, false);
-                PropKit.Box(car, "SideSill", new Vector3(x + side * 0.015f, 0.38f, midZ), new Vector3(0.05f, 0.09f, bodyLen * 0.55f), ab.Rubber, false);
-
-                // Зеркало: ножка + корпус + стекло.
-                float mz = s.WsBaseZ - 0.12f;
-                float my = s.BeltY + 0.12f;
-                PropKit.Box(car, "MirrorStalk", new Vector3(x + side * 0.06f, my - 0.05f, mz), new Vector3(0.14f, 0.03f, 0.04f), ab.Plastic, false);
-                PropKit.Box(car, "MirrorShell", new Vector3(x + side * 0.20f, my, mz), new Vector3(0.10f, 0.14f, 0.19f), ab.Plastic, false);
-                PropKit.Box(car, "MirrorGlass", new Vector3(x + side * 0.20f, my, mz - 0.098f), new Vector3(0.085f, 0.115f, 0.008f), ab.CarGlass, false);
-
-                // Хромированные ручки дверей (передняя и задняя).
-                PropKit.Box(car, "DoorHandle2", new Vector3(x + side * 0.012f, 0.92f, s.WsBaseZ - 1.35f), new Vector3(0.02f, 0.035f, 0.14f), ab.MetalPainted, false);
-            }
-
-            // Щётки стеклоочистителей.
-            if (!s.Van)
-            {
-                float t = 0.10f;
-                float wy = Mathf.Lerp(s.BeltY, s.RoofY, t) + 0.03f;
-                float wz = Mathf.Lerp(s.WsBaseZ, s.RoofFrontZ, t) + 0.02f;
-                foreach (float dx in new[] { -0.28f, 0.28f })
-                {
-                    GameObject wiper = PropKit.Box(car, "Wiper", new Vector3(dx, wy, wz), new Vector3(0.50f, 0.012f, 0.022f), ab.Rubber, false);
-                    wiper.transform.localRotation = Quaternion.Euler(-22f, 0f, dx < 0f ? 6f : -4f);
-                }
-            }
-
-            // Капот: центральный изгиб и швы.
-            float hoodZ0 = Mathf.Lerp(s.WsBaseZ, noseZ, 0.12f);
-            float hoodZ1 = Mathf.Lerp(s.WsBaseZ, noseZ, 0.86f);
-            float hoodMid = (hoodZ0 + hoodZ1) * 0.5f;
-            float hoodTop = BodyTopAt(s, hoodMid) + 0.004f;
-            PropKit.Box(car, "HoodCrease", new Vector3(0f, hoodTop, hoodMid), new Vector3(0.025f, 0.008f, hoodZ1 - hoodZ0), ab.Rubber, false);
-            foreach (int side in new[] { -1, 1 })
-                PropKit.Box(car, "HoodSeam", new Vector3(side * (hw - 0.14f), hoodTop, hoodMid), new Vector3(0.012f, 0.006f, hoodZ1 - hoodZ0), ab.Rubber, false);
-            PropKit.Box(car, "HoodSeamFront", new Vector3(0f, hoodTop - 0.01f, hoodZ1), new Vector3(hw * 2f - 0.3f, 0.006f, 0.012f), ab.Rubber, false);
-
-            // Лючок бака и антенна.
-            GameObject fuelCap = PropKit.Cylinder(car, "FuelCap", new Vector3(hw + 0.004f, s.BeltY - 0.12f, tailZ + 0.55f), new Vector3(0.18f, 0.008f, 0.18f), ab.MetalPainted, false);
-            fuelCap.transform.localRotation = Quaternion.Euler(0f, 0f, 90f);
-            if (!s.Van && !s.Pickup)
-                PropKit.Cylinder(car, "Antenna", new Vector3(-0.55f, s.RoofY + 0.3f, s.RoofRearZ + 0.1f), new Vector3(0.012f, 0.30f, 0.012f), ab.Rubber, false);
-
-            // Передний номер с рамкой.
-            PropKit.Box(car, "PlateFrontFrame", new Vector3(0f, 0.34f, noseZ + 0.075f), new Vector3(0.52f, 0.14f, 0.012f), ab.Rubber, false);
-            PropKit.Box(car, "PlateFront", new Vector3(0f, 0.34f, noseZ + 0.083f), new Vector3(0.46f, 0.105f, 0.008f), ab.RoadPaint, false);
-
-            // Фургон: багажник на крыше; пикап: хромированная дуга в кузове.
-            if (s.Van)
-            {
-                foreach (float z in new[] { -1.6f, -0.4f, 0.8f })
-                    PropKit.Box(car, "RoofRackBar", new Vector3(0f, s.RoofY + 0.07f, z), new Vector3(1.7f, 0.04f, 0.05f), mats.RustyMetal, false);
-                foreach (int side in new[] { -1, 1 })
-                    PropKit.Box(car, "RoofRackRail", new Vector3(side * 0.85f, s.RoofY + 0.06f, -0.4f), new Vector3(0.04f, 0.05f, 2.6f), mats.RustyMetal, false);
-            }
-        }
-
-        /// <summary>Салон, который видит водитель: дверные карты, консоль с рычагом, педали, щиток приборов, задний диван, потолок.</summary>
-        private static void BuildExtraInterior(Transform car, Spec s, AbandonedMaterials ab, ProceduralMaterialLibrary mats)
-        {
-            float hc = s.Van ? 0.88f : s.HalfCabin;
-            float seatZ = s.Van || s.Pickup ? s.WsBaseZ - 0.55f : (s.RoofFrontZ + s.RoofRearZ) * 0.5f + 0.1f;
-
-            // Дверные карты и подлокотники.
-            foreach (int side in new[] { -1, 1 })
-            {
-                PropKit.Box(car, "DoorCard", new Vector3(side * (hc + 0.02f), 0.95f, seatZ), new Vector3(0.05f, 0.42f, 1.5f), ab.Plastic, false);
-                PropKit.Box(car, "Armrest", new Vector3(side * (hc - 0.04f), 1.02f, seatZ + 0.05f), new Vector3(0.10f, 0.06f, 0.55f), ab.Fabric, false);
-            }
-
-            // Центральная консоль, рычаг, ручник.
-            PropKit.Box(car, "Console", new Vector3(0f, 0.80f, seatZ + 0.05f), new Vector3(0.28f, 0.22f, 0.9f), ab.Plastic, false);
-            PropKit.Cylinder(car, "GearStick", new Vector3(0.0f, 1.02f, seatZ + 0.25f), new Vector3(0.035f, 0.14f, 0.035f), ab.Rubber, false);
-            PropKit.Cylinder(car, "GearKnob", new Vector3(0.0f, 1.17f, seatZ + 0.25f), new Vector3(0.06f, 0.05f, 0.06f), ab.Rubber, false);
-            PropKit.Box(car, "Handbrake", new Vector3(0.0f, 0.97f, seatZ - 0.12f), new Vector3(0.05f, 0.05f, 0.24f), ab.Rubber, false);
-
-            // Педали и коврик водителя.
-            float footZ = s.WsBaseZ - 0.20f;
-            PropKit.Box(car, "FloorMat", new Vector3(-0.4f, 0.55f, footZ - 0.15f), new Vector3(0.55f, 0.015f, 0.8f), ab.Rubber, false);
-            PropKit.Box(car, "PedalGas", new Vector3(-0.30f, 0.62f, footZ), new Vector3(0.07f, 0.16f, 0.025f), ab.Rubber, false).transform.localRotation = Quaternion.Euler(-25f, 0f, 0f);
-            PropKit.Box(car, "PedalBrake", new Vector3(-0.50f, 0.62f, footZ), new Vector3(0.10f, 0.14f, 0.025f), ab.Rubber, false).transform.localRotation = Quaternion.Euler(-25f, 0f, 0f);
-
-            // Щиток приборов перед водителем (под рулём, не закрывает дорогу).
-            float clusterY = s.BeltY - 0.04f;
-            PropKit.Box(car, "InstrumentCluster", new Vector3(-0.4f, clusterY, s.WsBaseZ - 0.22f), new Vector3(0.38f, 0.14f, 0.06f), ab.Plastic, false);
-            PropKit.Box(car, "InstrumentGlass", new Vector3(-0.4f, clusterY + 0.002f, s.WsBaseZ - 0.255f), new Vector3(0.32f, 0.10f, 0.006f), mats.DarkGlass ?? ab.CarGlass, false);
-            PropKit.Box(car, "CenterVents", new Vector3(0f, s.BeltY - 0.02f, s.WsBaseZ - 0.22f), new Vector3(0.40f, 0.07f, 0.04f), ab.Rubber, false);
-
-            // Задний диван и потолок салона.
-            if (!s.Van && !s.Pickup)
-            {
-                float rearZ = (s.RoofRearZ + s.RearBaseZ) * 0.5f;
-                PropKit.Box(car, "RearBench", new Vector3(0f, 0.72f, rearZ), new Vector3(hc * 2f - 0.2f, 0.2f, 0.5f), ab.Fabric, false);
-                PropKit.Box(car, "RearBenchBack", new Vector3(0f, 1.02f, rearZ - 0.24f), new Vector3(hc * 2f - 0.2f, 0.55f, 0.10f), ab.Fabric, false);
-            }
-
-            PropKit.Box(car, "Headliner", new Vector3(0f, s.RoofY - 0.035f, (s.RoofFrontZ + s.RoofRearZ) * 0.5f), new Vector3(hc * 2f - 0.14f, 0.015f, s.RoofFrontZ - s.RoofRearZ - 0.15f), ab.WallPaintCream, false);
-            PropKit.Box(car, "RearViewMirror", new Vector3(0f, s.RoofY - 0.18f, s.RoofFrontZ - 0.06f), new Vector3(0.22f, 0.07f, 0.03f), ab.Plastic, false);
         }
 
         private static void BuildWheels(Transform car, Spec s, ProceduralMaterialLibrary mats, AbandonedMaterials ab, System.Random rng)
@@ -427,18 +278,18 @@ namespace Ogni.EditorTools
                     wheel.transform.localRotation = Quaternion.Euler(0f, 0f, 90f);
 
                     MeshPart(wheel.transform, "Tire", tireMesh, ab.Rubber);
-                    // Внутренний тёмный барабан утоплен, диск/спицы/колпак разнесены по оси Y без z-fighting.
-                    PropKit.Cylinder(wheel.transform, "Drum", Vector3.zero, new Vector3(0.37f, 0.055f, 0.37f), hubMat, false);
-                    PropKit.Cylinder(wheel.transform, "RimFace", new Vector3(0f, -side * 0.078f, 0f), new Vector3(0.34f, 0.012f, 0.34f), alloyMat, false);
+                    // Внутренний тёмный барабан + металлический 5-спицевый литой диск.
+                    PropKit.Cylinder(wheel.transform, "Drum", Vector3.zero, new Vector3(0.39f, 0.09f, 0.39f), hubMat, false);
+                    PropKit.Cylinder(wheel.transform, "RimFace", new Vector3(0f, -side * 0.06f, 0f), new Vector3(0.34f, 0.03f, 0.34f), alloyMat, false);
+                    PropKit.Cylinder(wheel.transform, "HubCap", new Vector3(0f, -side * 0.08f, 0f), new Vector3(0.11f, 0.03f, 0.11f), hubMat, false);
                     for (int sp = 0; sp < 5; sp++)
                     {
                         float a = sp * 72f;
                         GameObject spoke = PropKit.Box(wheel.transform, "Spoke_" + sp,
-                            new Vector3(Mathf.Cos(a * Mathf.Deg2Rad) * 0.095f, -side * 0.098f, Mathf.Sin(a * Mathf.Deg2Rad) * 0.095f),
-                            new Vector3(0.15f, 0.016f, 0.042f), alloyMat, false);
+                            new Vector3(Mathf.Cos(a * Mathf.Deg2Rad) * 0.10f, -side * 0.075f, Mathf.Sin(a * Mathf.Deg2Rad) * 0.10f),
+                            new Vector3(0.16f, 0.025f, 0.04f), alloyMat, false);
                         spoke.transform.localRotation = Quaternion.Euler(0f, -a, 0f);
                     }
-                    PropKit.Cylinder(wheel.transform, "HubCap", new Vector3(0f, -side * 0.112f, 0f), new Vector3(0.11f, 0.012f, 0.11f), hubMat, false);
                 }
             }
 

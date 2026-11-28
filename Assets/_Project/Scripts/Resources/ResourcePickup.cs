@@ -164,7 +164,13 @@ namespace Ogni.Resources
         private float _next;
         private bool _visible = true;
 
-        private void Awake() => _renderers = GetComponentsInChildren<Renderer>(true);
+        private ResourcePickup _pickup;
+
+        private void Awake()
+        {
+            _renderers = GetComponentsInChildren<Renderer>(true);
+            _pickup = GetComponent<ResourcePickup>();
+        }
 
         private void Update()
         {
@@ -173,7 +179,7 @@ namespace Ogni.Resources
 
             Camera cam = Camera.main;
             if (cam == null || _renderers == null) return;
-            ResourcePickup pickup = GetComponent<ResourcePickup>();
+            ResourcePickup pickup = _pickup;
             if (pickup != null && pickup.IsCollected) return; // собранный предмет остаётся скрытым
             bool near = (cam.transform.position - transform.position).sqrMagnitude < cullDistance * cullDistance;
             if (near == _visible) return;

@@ -14,6 +14,7 @@ Material:
   m_ValidKeywords:
   - _METALLICSPECGLOSSMAP
   - _NORMALMAP
+  - _OCCLUSIONMAP
   - _PARALLAXMAP
   m_InvalidKeywords:
   - _METALLICGLOSSMAP
@@ -30,11 +31,11 @@ Material:
     serializedVersion: 3
     m_TexEnvs:
     - _BaseMap:
-        m_Texture: {fileID: 2800000, guid: 9297897549f349148ae4181dbf37801e, type: 3}
+        m_Texture: {fileID: 2800000, guid: 96a0020b9259fe644af805e4d05cc1a3, type: 3}
         m_Scale: {x: 3, y: 2}
         m_Offset: {x: 0, y: 0}
     - _BumpMap:
-        m_Texture: {fileID: 2800000, guid: 332ce38bbdb6dbf47ac57d7b17ba1ab9, type: 3}
+        m_Texture: {fileID: 2800000, guid: 70f3ea89027d4a046a9ae8070bbadd89, type: 3}
         m_Scale: {x: 3, y: 2}
         m_Offset: {x: 0, y: 0}
     - _DetailAlbedoMap:
@@ -54,19 +55,19 @@ Material:
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     - _MainTex:
-        m_Texture: {fileID: 2800000, guid: 9297897549f349148ae4181dbf37801e, type: 3}
+        m_Texture: {fileID: 2800000, guid: 96a0020b9259fe644af805e4d05cc1a3, type: 3}
         m_Scale: {x: 3, y: 2}
         m_Offset: {x: 0, y: 0}
     - _MetallicGlossMap:
-        m_Texture: {fileID: 2800000, guid: bcb570a30028e6744b5192c09d15432b, type: 3}
+        m_Texture: {fileID: 2800000, guid: 0fd7e7b37817aa145a184e66e7393b09, type: 3}
         m_Scale: {x: 3, y: 2}
         m_Offset: {x: 0, y: 0}
     - _OcclusionMap:
-        m_Texture: {fileID: 0}
+        m_Texture: {fileID: 2800000, guid: 56a936b1d6dca88489c7033feefabe9f, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     - _ParallaxMap:
-        m_Texture: {fileID: 2800000, guid: 9d5545b74db94654c8bc782f94456073, type: 3}
+        m_Texture: {fileID: 2800000, guid: 79a293702a922084a85c40358527b159, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     - _SpecGlossMap:
@@ -106,7 +107,7 @@ Material:
     - _Glossiness: 0.12
     - _GlossyReflections: 0
     - _Metallic: 1
-    - _OcclusionStrength: 1
+    - _OcclusionStrength: 0.8
     - _Parallax: 0.02
     - _QueueOffset: 0
     - _ReceiveShadows: 1

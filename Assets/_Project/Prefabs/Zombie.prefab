@@ -48,7 +48,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d5a57f767e5e46a458fc5d3c628d0cbb, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Unity.Netcode.Runtime::Unity.Netcode.NetworkObject
-  GlobalObjectIdHash: 2444681861
+  GlobalObjectIdHash: 1469928249
   InScenePlacedSourceGlobalObjectIdHash: 0
   m_InScenePlacedDisabledByDefault: 0
   DeferredDespawnTick: 0
@@ -160,18 +160,6 @@ MonoBehaviour:
   rewardOnDeath: 1
   clothReward: 2
   metalReward: 1
-  clawReach: 1.05
-  attackHitFraction: 0.45
-  corpseLingerSeconds: 45
-  corpseSinkSeconds: 4
-  turnInPlaceAngle: 65
-  speedMultiplier: 1.6
-  senseRadius: 9
-  hearingBoost: 2.2
-  chaseLoseDistance: 32
-  staggerScale: 0.4
-  cooldownScale: 0.7
-  activeRange: 140
   respawnDelaySeconds: 600
   respawnBlockedByPlayerRadius: 12
 --- !u!136 &8214562900742298656

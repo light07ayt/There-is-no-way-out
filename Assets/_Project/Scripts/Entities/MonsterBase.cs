@@ -94,6 +94,9 @@ namespace Ogni.Entities
             _lastPos = transform.position;
         }
 
+        private void OnEnable() => ThreatRegistry.Register(this);
+        private void OnDisable() => ThreatRegistry.Unregister(this);
+
         public override void OnNetworkSpawn()
         {
             SpawnPosition = transform.position;

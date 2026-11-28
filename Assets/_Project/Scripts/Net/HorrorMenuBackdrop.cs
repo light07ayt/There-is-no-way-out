@@ -68,7 +68,13 @@ namespace Ogni.Net
                 if (wallMat.HasProperty("_BumpScale")) wallMat.SetFloat("_BumpScale", 1.35f);
             }
             if (wallMat.HasProperty("_BaseColor")) wallMat.SetColor("_BaseColor", Color.white);
-            if (wallMat.HasProperty("_Smoothness")) wallMat.SetFloat("_Smoothness", 0.28f);
+            if (wallMat.HasProperty("_Smoothness")) wallMat.SetFloat("_Smoothness", 0.22f);
+            if (wallMat.HasProperty("_EmissionMap"))
+            {
+                wallMat.SetTexture("_EmissionMap", wallTex);
+                wallMat.SetColor("_EmissionColor", new Color(0.38f, 0.34f, 0.34f));
+                wallMat.EnableKeyword("_EMISSION");
+            }
             _assets.Add(wallMat);
             wall.GetComponent<Renderer>().sharedMaterial = wallMat;
             _objects.Add(wall);
@@ -80,8 +86,8 @@ namespace Ogni.Net
             _flickerLight = flObj.AddComponent<Light>();
             _flickerLight.type = LightType.Point;
             _flickerLight.color = new Color(1.0f, 0.93f, 0.84f);
-            _flickerLight.intensity = 34f;
-            _flickerLight.range = 13f;
+            _flickerLight.intensity = 92f;
+            _flickerLight.range = 18f;
             _flickerLight.cullingMask = 1 << Layer;
             _objects.Add(flObj);
 
@@ -92,7 +98,7 @@ namespace Ogni.Net
             _fillLight = fillObj.AddComponent<Light>();
             _fillLight.type = LightType.Point;
             _fillLight.color = new Color(0.82f, 0.84f, 0.90f);
-            _fillLight.intensity = 9f;
+            _fillLight.intensity = 32f;
             _fillLight.range = 10f;
             _fillLight.cullingMask = 1 << Layer;
             _objects.Add(fillObj);
@@ -104,7 +110,7 @@ namespace Ogni.Net
             _accentRedLight = redObj.AddComponent<Light>();
             _accentRedLight.type = LightType.Point;
             _accentRedLight.color = new Color(0.95f, 0.14f, 0.12f);
-            _accentRedLight.intensity = 8f;
+            _accentRedLight.intensity = 22f;
             _accentRedLight.range = 9f;
             _accentRedLight.cullingMask = 1 << Layer;
             _objects.Add(redObj);
@@ -137,9 +143,9 @@ namespace Ogni.Net
 
             _flickerCurrent = Mathf.Lerp(_flickerCurrent, _flickerTarget, 1f - Mathf.Exp(-34f * dt));
             float microHum = 1f + Mathf.Sin(Time.unscaledTime * 56f) * 0.03f;
-            _flickerLight.intensity = 34f * _flickerCurrent * microHum;
-            if (_fillLight != null) _fillLight.intensity = 6.5f + 4.5f * _flickerCurrent;
-            if (_accentRedLight != null) _accentRedLight.intensity = 5.5f + 4.0f * _flickerCurrent;
+            _flickerLight.intensity = 92f * _flickerCurrent * microHum;
+            if (_fillLight != null) _fillLight.intensity = 24f + 12f * _flickerCurrent;
+            if (_accentRedLight != null) _accentRedLight.intensity = 16f + 8f * _flickerCurrent;
         }
 
         public void Dispose()

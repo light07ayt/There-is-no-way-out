@@ -139,7 +139,7 @@ namespace Ogni.Player
 
             float sens = GameSettings.MouseSensitivity > 0f ? GameSettings.MouseSensitivity : sensitivity;
 
-            if (LookEnabled && !isDowned)
+            if (LookEnabled && !isDowned && !PlayerCraftMenu.IsAnyOpen)
             {
                 Vector2 look = _input.Look * sens;
                 _body.Rotate(Vector3.up, look.x, Space.World);
@@ -202,15 +202,6 @@ namespace Ogni.Player
                 transform.localRotation = fpLocalRot;
             }
         }
-
-        /// <summary>Сбрасывает наклон взгляда (например, при посадке в машину).</summary>
-        public void SetPitch(float pitch) => _pitch = Mathf.Clamp(pitch, minPitch, maxPitch);
-
-        /// <summary>Ограничивает наклон взгляда (в салоне нельзя смотреть в пол и в потолок).</summary>
-        public void ClampPitch(float min, float max) => _pitch = Mathf.Clamp(_pitch, min, max);
-
-        /// <summary>Ближняя плоскость и поле зрения камеры (в салоне - ближе, чтобы руль и стойки не обрезались).</summary>
-        public void SetNearClip(float near) { if (_cam != null) _cam.nearClipPlane = near; }
 
         public static void SetCursorLocked(bool locked)
         {

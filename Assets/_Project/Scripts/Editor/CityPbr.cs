@@ -20,7 +20,7 @@ namespace Ogni.EditorTools
             var ti = (TextureImporter)assetImporter;
             CityPbr.Kind kind = CityPbr.Classify(Path.GetFileNameWithoutExtension(assetPath));
 
-            ti.maxTextureSize = 1024;
+            ti.maxTextureSize = 2048;
             ti.mipmapEnabled = true;
             ti.wrapMode = TextureWrapMode.Repeat;
             ti.filterMode = FilterMode.Trilinear;
@@ -65,14 +65,14 @@ namespace Ogni.EditorTools
         public static Kind Classify(string fileName)
         {
             string n = fileName.ToLowerInvariant();
-            if (n.Contains("normal") || n.EndsWith("_nrm") || n.EndsWith("_nor") || n.EndsWith("_n")) return Kind.Normal;
+            if (n.Contains("normal") || n.Contains("_nor_gl") || n.Contains("_nor_") || n.EndsWith("_nrm") || n.EndsWith("_nor") || n.EndsWith("_n")) return Kind.Normal;
             if (n.Contains("rough")) return Kind.Roughness;
             if (n.Contains("height") || n.Contains("disp") || n.Contains("bump")) return Kind.Height;
-            if (n.EndsWith("_ao") || n.Contains("occlusion") || n.Contains("ambient")) return Kind.AO;
+            if (n.Contains("_ao_") || n.EndsWith("_ao") || n.Contains("occlusion") || n.Contains("ambient")) return Kind.AO;
             if (n.Contains("metal")) return Kind.Metallic;
-            if (n.Contains("opacity") || n.EndsWith("_alpha") || n.EndsWith("_mask")) return Kind.Opacity;
+            if (n.Contains("opacity") || n.Contains("_alpha") || n.EndsWith("_mask")) return Kind.Opacity;
             if (n.Contains("albedo") || n.Contains("basecolor") || n.Contains("base_color") || n.Contains("diffuse")
-                || n.EndsWith("_color") || n.EndsWith("_col") || n.EndsWith("_diff")) return Kind.Albedo;
+                || n.Contains("_diff") || n.EndsWith("_color") || n.EndsWith("_col")) return Kind.Albedo;
             return Kind.Unknown;
         }
 
@@ -105,8 +105,15 @@ namespace Ogni.EditorTools
 
         private static Color32[] ReadPixels(string assetPath, out int w, out int h)
         {
+            w = 0; h = 0;
+            if (string.IsNullOrEmpty(assetPath) || assetPath.EndsWith(".exr", System.StringComparison.OrdinalIgnoreCase))
+                return null;
             var tex = new Texture2D(2, 2, TextureFormat.RGBA32, false, true);
-            tex.LoadImage(File.ReadAllBytes(assetPath));
+            if (!tex.LoadImage(File.ReadAllBytes(assetPath)))
+            {
+                Object.DestroyImmediate(tex);
+                return null;
+            }
             w = tex.width;
             h = tex.height;
             Color32[] px = tex.GetPixels32();
@@ -119,6 +126,7 @@ namespace Ogni.EditorTools
         {
             if (roughPath == null) return null;
             Color32[] rough = ReadPixels(roughPath, out int w, out int h);
+            if (rough == null || w == 0 || h == 0) return null;
             Color32[] height = null;
             if (puddles && heightPath != null)
             {
@@ -246,6 +254,88 @@ namespace Ogni.EditorTools
 
             EditorUtility.SetDirty(mat);
             return true;
+        }
+
+        /// <summary>Пробует несколько имён PBR-наборов по порядку и возвращает загруженные Albedo/Normal.</summary>
+        public static bool ApplyAny(
+            Material mat,
+            string[] candidateSets,
+            out Texture2D appliedAlbedo,
+            out Texture2D appliedNormal,
+            bool alphaClip = false,
+            bool puddles = false,
+            float smoothBoost = 1f,
+            bool parallax = false)
+        {
+            appliedAlbedo = null;
+            appliedNormal = null;
+            if (mat == null || candidateSets == null) return false;
+            foreach (string set in candidateSets)
+            {
+                string albedoP = Find(set, Kind.Albedo);
+                if (albedoP == null) continue;
+                if (Apply(mat, set, alphaClip, puddles, smoothBoost, parallax))
+                {
+                    appliedAlbedo = Load(albedoP);
+                    appliedNormal = Load(Find(set, Kind.Normal));
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        public static void ApplyToTerrainLayer(string layerPath, Texture2D albedo, Texture2D normal, float normalScale = 1.2f)
+        {
+            if (albedo == null) return;
+            TerrainLayer layer = AssetDatabase.LoadAssetAtPath<TerrainLayer>(layerPath);
+            if (layer == null) return;
+            layer.diffuseTexture = albedo;
+            if (normal != null)
+            {
+                layer.normalMapTexture = normal;
+                layer.normalScale = normalScale;
+            }
+            EditorUtility.SetDirty(layer);
+        }
+
+        [MenuItem("Ogni/Apply PBR Materials")]
+        public static void ApplyAllPbrMaterialsMenu()
+        {
+            ReimportAll();
+            int updated = 0;
+
+            void TryMat(string matName, string[] sets, string terrainLayerPath = null, bool puddles = false, float smoothBoost = 1f, bool parallax = false)
+            {
+                Material mat = AssetDatabase.LoadAssetAtPath<Material>($"Assets/_Project/Art/Materials/Mat_{matName}.mat");
+                if (mat == null) return;
+                if (ApplyAny(mat, sets, out Texture2D alb, out Texture2D nrm, false, puddles, smoothBoost, parallax))
+                {
+                    updated++;
+                    if (!string.IsNullOrEmpty(terrainLayerPath))
+                        ApplyToTerrainLayer(terrainLayerPath, alb, nrm);
+                }
+            }
+
+            TryMat("Asphalt", new[] { "worn_asphalt", "asphalt_wet", "asphalt_02", "asphalt" }, "Assets/_Project/Art/Layer_Asphalt.terrainlayer", puddles: true, smoothBoost: 1.25f, parallax: true);
+            TryMat("ForestGround", new[] { "forest_ground", "forest_floor", "brown_mud_leaves", "grass_overgrowth" }, "Assets/_Project/Art/Layer_Forest.terrainlayer", puddles: false, smoothBoost: 0.9f, parallax: false);
+            TryMat("DirtRoad", new[] { "rocky_terrain_02", "dirt_road", "mud_road", "gravel_road", "brown_mud" }, "Assets/_Project/Art/Layer_Dirt.terrainlayer", puddles: true, smoothBoost: 1.0f, parallax: false);
+            TryMat("WoodPlanks", new[] { "weathered_brown_planks", "dark_wooden_planks", "wood_planks", "worn_planks", "planks", "old_wood" });
+            TryMat("PlankCut", new[] { "brown_planks_09", "dark_wooden_planks", "weathered_brown_planks", "wood_planks", "worn_planks" });
+            TryMat("WoodDark", new[] { "black_painted_planks", "dark_wooden_planks", "weathered_brown_planks" });
+            TryMat("CharredWood", new[] { "ceramic_roof_01", "black_painted_planks" }, parallax: true);
+            TryMat("TreeBark", new[] { "tree_bark", "pine_bark", "bark" });
+            TryMat("Concrete", new[] { "concrete_mossy", "concrete", "plaster" });
+            TryMat("Brick", new[] { "wall_bricks_plaster", "broken_brick_wall", "worn_brick_wall", "red_brick", "brick_overgrown", "brick" }, parallax: true);
+            TryMat("RustyMetal", new[] { "rusty_metal_04", "rust_metal", "rust" });
+            TryMat("Stone", new[] { "gray_rocks", "rock", "stone" }, parallax: true);
+            TryMat("PanelExterior", new[] { "wood_peeling_paint_weathered", "plaster_peeling" });
+            TryMat("MossGround", new[] { "grass_overgrowth", "moss", "forest_ground" });
+
+            PolyHavenPropsSetup.SetupAll();
+
+            AssetDatabase.SaveAssets();
+            AssetDatabase.Refresh();
+            Debug.Log($"[Ogni] Обновлено PBR-материалов из Assets/Textures/City: {updated} (+ 3D-пропсы Poly Haven).");
         }
     }
 }

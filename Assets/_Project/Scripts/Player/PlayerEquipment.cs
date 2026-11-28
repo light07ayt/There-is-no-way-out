@@ -65,7 +65,104 @@ namespace Ogni.Player
             _input = GetComponent<PlayerInputReader>();
             _craftMenu = GetComponent<PlayerCraftMenu>();
             _health = GetComponent<PlayerHealth>();
+            FixAxeViewModelRuntime();
+            FixHammerAndBatViewModelsRuntime();
             UpdateVisuals();
+        }
+
+        // --- Подгонка хвата молотка и биты на лету (префаб Player пересобирать не нужно) ---
+        // Если после запуска молоток смотрит не туда - поменяйте HammerVisualYaw (180 <-> 0).
+        // Если бита держится не за ту сторону - поменяйте BatHeldByFarEnd (true <-> false).
+        private const float HammerVisualYaw = 180f;   // было 90: боёк смотрел влево от игрока
+        private const bool BatHeldByFarEnd = true;    // рукоять - противоположный конец модели
+        private const float BatGripFromEnd = 0.20f;   // от торца рукояти до центра кисти, м
+
+        private void FixHammerAndBatViewModelsRuntime()
+        {
+            if (hammerModel != null)
+            {
+                Transform vis = hammerModel.transform.Find("Rig/PH_HammerVisual");
+                if (vis != null) vis.localRotation = Quaternion.Euler(0f, HammerVisualYaw, 0f);
+            }
+
+            if (clubModel != null)
+            {
+                Transform vis = clubModel.transform.Find("Rig/PH_BatVisual");
+                if (vis != null && vis.parent != null)
+                {
+                    Transform rig = vis.parent;
+                    vis.localRotation = BatHeldByFarEnd ? Quaternion.Euler(180f, 0f, 0f) : Quaternion.identity;
+                    vis.localPosition = Vector3.zero;
+                    if (TryGetLocalBounds(rig, vis, out Bounds b))
+                    {
+                        // Нижний торец (рукоять) - на BatGripFromEnd ниже кисти, ось биты проходит через кулак.
+                        vis.localPosition = new Vector3(-b.center.x, -BatGripFromEnd - b.min.y, -b.center.z);
+                    }
+                }
+            }
+        }
+
+        private static bool TryGetLocalBounds(Transform space, Transform root, out Bounds bounds)
+        {
+            bounds = default;
+            bool has = false;
+            foreach (MeshFilter mf in root.GetComponentsInChildren<MeshFilter>(true))
+            {
+                if (mf.sharedMesh == null) continue;
+                Bounds mb = mf.sharedMesh.bounds;
+                for (int i = 0; i < 8; i++)
+                {
+                    Vector3 corner = mb.center + Vector3.Scale(mb.extents,
+                        new Vector3((i & 1) == 0 ? -1f : 1f, (i & 2) == 0 ? -1f : 1f, (i & 4) == 0 ? -1f : 1f));
+                    Vector3 local = space.InverseTransformPoint(mf.transform.TransformPoint(corner));
+                    if (!has) { bounds = new Bounds(local, Vector3.zero); has = true; }
+                    else bounds.Encapsulate(local);
+                }
+            }
+
+            return has;
+        }
+
+        /// <summary>
+        /// Автоисправление топора от 1-го лица на лету (без пересборки префаба):
+        /// поворачивает лезвие вперёд (+Z), убирает лишнюю белую кисть-заглушку и осветляет металл обуха.
+        /// </summary>
+        private void FixAxeViewModelRuntime()
+        {
+            if (axeModel == null) return;
+            Transform rig = axeModel.transform.Find("Rig");
+            if (rig != null)
+            {
+                rig.localRotation = Quaternion.Euler(26f, -8f, -4f);
+                Transform phAxe = rig.Find("PH_AxeVisual");
+                if (phAxe != null)
+                {
+                    phAxe.localPosition = new Vector3(0f, -0.14f, 0.04f);
+                    phAxe.localRotation = Quaternion.Euler(0f, 0f, 0f);
+                    phAxe.localScale = Vector3.one * 1.25f;
+
+                    // Смягчаем Metallic=1.0, чтобы лезвие не становилось чёрным без ReflectionProbe в URP.
+                    foreach (Renderer r in phAxe.GetComponentsInChildren<Renderer>(true))
+                    {
+                        if (r == null) continue;
+                        foreach (Material m in r.materials)
+                        {
+                            if (m == null) continue;
+                            if (m.HasProperty("_Metallic")) m.SetFloat("_Metallic", Mathf.Min(m.GetFloat("_Metallic"), 0.45f));
+                            if (m.HasProperty("_Smoothness")) m.SetFloat("_Smoothness", Mathf.Min(m.GetFloat("_Smoothness"), 0.50f));
+                        }
+                    }
+                }
+            }
+            // Убираем неаккуратную старую процедурную руку на топоре, если она торчит поверх ручки.
+            for (int i = 0; i < axeModel.transform.childCount; i++)
+            {
+                Transform ch = axeModel.transform.GetChild(i);
+                if (ch.name.StartsWith("VM_Hand_") || ch.name.StartsWith("VM_Sleeve_") || ch.name.StartsWith("VM_Skin_"))
+                {
+                    ch.gameObject.SetActive(false);
+                }
+            }
         }
 
         public override void OnNetworkSpawn()
@@ -149,6 +246,7 @@ namespace Ogni.Player
                 _punchLeft = !_punchLeft;
                 FirstPersonCamera.Kick(0.3f, 0f, _punchUsedLeft ? -0.7f : 0.7f); // корпус чуть подаётся за ударом
             }
+            GameSounds.Play2D(GameSounds.Kind.MeleeSwing, 0.55f, UnityEngine.Random.Range(0.90f, 1.12f));
             Swung?.Invoke(_swingSlot);
         }
 
@@ -206,44 +304,11 @@ namespace Ogni.Player
                 if (tr != null) _rest[tr] = (tr.localPosition, tr.localRotation);
         }
 
-        private FirstPersonMotor _motor;
-
         private void AnimatePunch(float t, float impact)
         {
-            if (_motor == null) _motor = GetComponent<FirstPersonMotor>();
-            if (_motor != null && _motor.IsSwimming && t < 0f)
-            {
-                AnimateSwimStroke();
-                return;
-            }
-
             bool leftActive = _punchUsedLeft;
             AnimateArm(_armL, _handL, leftActive, -1f, t, impact);
             AnimateArm(_armR, _handR, !leftActive, 1f, t, impact);
-        }
-
-        // Плавная анимация гребков руками при плавании от первого лица.
-        private void AnimateSwimStroke()
-        {
-            float speed = _motor != null ? _motor.HorizontalSpeed : 0f;
-            float freq = speed > 0.35f ? 3.8f : 1.4f;
-            float amp = speed > 0.35f ? 1f : 0.28f;
-            float phase = Time.time * freq;
-
-            ApplySwimArm(_armL, _handL, -1f, phase, amp);
-            ApplySwimArm(_armR, _handR, 1f, phase + Mathf.PI, amp);
-        }
-
-        private void ApplySwimArm(Transform arm, Transform hand, float side, float phase, float amp)
-        {
-            if (arm == null || !_rest.TryGetValue(arm, out var rest)) return;
-            float fwd = Mathf.Sin(phase) * 0.16f * amp;
-            float outX = (0.04f + Mathf.Cos(phase) * 0.08f) * side * amp;
-            float bobY = Mathf.Sin(phase * 2f) * 0.03f * amp + 0.04f;
-            arm.localPosition = rest.pos + new Vector3(outX, bobY, fwd);
-            arm.localRotation = rest.rot * Quaternion.Euler(22f * amp + Mathf.Cos(phase) * 20f * amp, -side * 16f * amp, side * 12f);
-            if (hand != null && _rest.TryGetValue(hand, out var hr))
-                hand.localRotation = hr.rot * Quaternion.Euler(0f, 0f, -side * 35f);
         }
 
         // Кулак: замах назад → быстрый выпад вперёд с поворотом кисти → возврат. Вторая рука подтягивается к корпусу.
@@ -400,7 +465,7 @@ namespace Ogni.Player
                 return;
             }
 
-            _recoilStart = Time.time;
+            _recoilStart = Time.time; GameSounds.Play2D(GameSounds.Kind.HitImpact, 0.72f, UnityEngine.Random.Range(0.88f, 1.14f));
             switch (s)
             {
                 case ToolSlot.Axe: FirstPersonCamera.Kick(3.2f, side * 0.9f, side * 1.6f); FirstPersonCamera.Shake(0.5f, 0.18f); break;
@@ -430,26 +495,12 @@ namespace Ogni.Player
         {
             ToolSlot slot = ActiveSlot;
             Transform cam = Camera.main != null ? Camera.main.transform : transform;
-            float castRadius = slot == ToolSlot.Unarmed ? 0.22f : 0.14f;
-            RaycastHit[] hits = Physics.SphereCastAll(cam.position, castRadius, cam.forward, reach, ~0, QueryTriggerInteraction.Ignore);
-            System.Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
-
-            RaycastHit hit = default;
-            bool found = false;
-            for (int i = 0; i < hits.Length; i++)
-            {
-                if (hits[i].collider == null) continue;
-                if (hits[i].collider.transform == transform || hits[i].collider.transform.IsChildOf(transform)) continue;
-                hit = hits[i];
-                found = true;
-                break;
-            }
-
-            if (!found)
+            if (!Physics.Raycast(cam.position, cam.forward, out RaycastHit hit, reach, ~0, QueryTriggerInteraction.Ignore))
             {
                 ImpactFeedback(slot, false);
                 return;
             }
+            if (hit.collider.transform.IsChildOf(transform)) return;
 
             ImpactFeedback(slot, true);
 

@@ -715,12 +715,10 @@ namespace Ogni.EditorTools
 
             BuildForestCamp(mats, abandonedMats, barricadePrefab, doorPrefab, campfirePrefab);
             BuildCityDistrict(mats, abandonedMats, doorPrefab);
-            WatchtowerBuilder.Build(new Vector3(0f, 0f, -76f), mats, abandonedMats, doorPrefab);
+            BuildEvacuationZone(mats);
             ChapelBuilder.Build(mats, abandonedMats, doorPrefab);
             BuildIndustrialYard(mats, abandonedMats, doorPrefab);
             BuildAbandonedFarm(mats, abandonedMats, doorPrefab);
-            LakeBuilder.Build(mats, abandonedMats);
-            WildlifeBuilder.BuildAll(Object.FindFirstObjectByType<Terrain>());
 
             float spanX = WorldLayout.BoundX * 2f + 10f;
             float spanZ = (WorldLayout.BoundMaxZ - WorldLayout.BoundMinZ) + 10f;
@@ -747,46 +745,10 @@ namespace Ogni.EditorTools
                     new Vector3(148f, 0f, 215f),  new Vector3(235f, 0f, 120f)
                 };
 
-                // Ещё ~45 зомби: орды у города, часовни, фермы и промзоны + одиночки по лесу (детерминированно, вне построек, озера и лагеря).
-                var spotList = new System.Collections.Generic.List<Vector3>(zombieSpots);
-                var zr = new System.Random(4217);
-                Vector2[] hordeCenters =
-                {
-                    new Vector2(-30f, 150f), new Vector2(70f, 190f), new Vector2(-110f, 120f), new Vector2(140f, 110f),
-                    WorldLayout.ChapelCenter + new Vector2(14f, 0f), WorldLayout.FarmCenter + new Vector2(-12f, 10f),
-                    WorldLayout.YardCenter + new Vector2(-40f, -8f)
-                };
-                foreach (Vector2 hc in hordeCenters)
-                {
-                    int n = 3 + zr.Next(0, 3);
-                    for (int k = 0; k < n; k++)
-                    {
-                        float ang = (float)(zr.NextDouble() * Mathf.PI * 2.0);
-                        float rad = 3f + (float)zr.NextDouble() * 13f;
-                        Vector2 p2 = hc + new Vector2(Mathf.Cos(ang), Mathf.Sin(ang)) * rad;
-                        if (WorldLayout.InsideBounds(p2.x, p2.y, 12f) && !WorldLayout.InLakeOrShore(p2.x, p2.y, 6f))
-                            spotList.Add(new Vector3(p2.x, 0f, p2.y));
-                    }
-                }
-
-                int guard = 0, loners = 0;
-                while (loners < 22 && guard++ < 600)
-                {
-                    float x = (float)(zr.NextDouble() * 2.0 - 1.0) * (WorldLayout.BoundX - 30f);
-                    float zz = WorldLayout.BoundMinZ + 30f + (float)zr.NextDouble() * (WorldLayout.BoundMaxZ - WorldLayout.BoundMinZ - 60f);
-                    if (new Vector2(x, zz).magnitude < 60f) continue;               // не в лагере и не у спавна
-                    if (WorldLayout.InLakeOrShore(x, zz, 8f)) continue;
-                    if (WorldLayout.DistanceToTracks(x, zz) < 3f) continue;
-                    spotList.Add(new Vector3(x, 0f, zz));
-                    loners++;
-                }
-
-                zombieSpots = spotList.ToArray();
-
                 for (int i = 0; i < zombieSpots.Length; i++)
                 {
                     Vector3 pos = zombieSpots[i];
-                    if (sceneTerrain != null) pos.y = WorldLayout.SampleWorldHeight(sceneTerrain, pos.x, pos.z);
+                    if (sceneTerrain != null) pos.y = sceneTerrain.SampleHeight(pos);
                     GameObject z = (GameObject)PrefabUtility.InstantiatePrefab(listenerPrefab);
                     z.name = $"Zombie_{i + 1:00}";
                     z.transform.position = pos;
@@ -944,14 +906,6 @@ namespace Ogni.EditorTools
                         float trackDist = WorldLayout.DistanceToTracks(wx, wz);
                         float trackDirt = 1f - Mathf.Clamp01((trackDist - 2.3f) / 1.5f);
                         dirt = Mathf.Max(dirt, trackDirt);
-
-                        // Песчано-галечный берег и дно лесного озера.
-                        float lakeDist = WorldLayout.LakeNormDist(wx, wz);
-                        if (lakeDist < 1.22f)
-                        {
-                            float shoreDirt = 1f - Mathf.Clamp01((lakeDist - 0.96f) / 0.26f);
-                            dirt = Mathf.Max(dirt, shoreDirt);
-                        }
                     }
 
                     float grass = Mathf.Clamp01(1f - Mathf.Max(asphalt, dirt));
@@ -966,10 +920,8 @@ namespace Ogni.EditorTools
 
             GameObject terrainObj = Terrain.CreateTerrainGameObject(data);
             terrainObj.name = "Terrain";
-            terrainObj.transform.position = new Vector3(WorldLayout.TerrainOriginX, WorldLayout.TerrainOriginY, WorldLayout.TerrainOriginZ);
-            Terrain terrain = terrainObj.GetComponent<Terrain>();
-            TerrainGrassBuilder.ApplyGrass(terrain, splat);
-            return terrain;
+            terrainObj.transform.position = new Vector3(WorldLayout.TerrainOriginX, 0f, WorldLayout.TerrainOriginZ);
+            return terrainObj.GetComponent<Terrain>();
         }
 
         private static TerrainLayer CreateTerrainLayer(string name, Texture2D diffuse, Texture2D normal, float tileSize)
@@ -1142,18 +1094,17 @@ namespace Ogni.EditorTools
             _floorMat = mats.Concrete; // внутри малоэтажных зданий бетонный пол вместо кирпичного
             GameObject city = new GameObject("AbandonedCity");
 
-            // Продуктовый магазин и детализированная заправка (АЗС) на первом перекрёстке.
-            ShopAndGasBuilder.BuildGroceryStore(city.transform, "City_Grocery_Main", new Vector3(-16f, 0f, 70f), 90f, mats, abandonedMats, doorPrefab);
-            ShopAndGasBuilder.BuildGroceryStore(city.transform, "City_Grocery_West", new Vector3(-54f, 0f, 138f), 90f, mats, abandonedMats, doorPrefab);
-            ShopAndGasBuilder.BuildGroceryStore(city.transform, "City_Grocery_East", new Vector3(54f, 0f, 138f), -90f, mats, abandonedMats, doorPrefab);
+            // Магазин и заправка на первом перекрёстке.
+            BuildBuilding(city.transform, "City_Shop", new Vector3(-16f, 0f, 70f), new Vector3(10f, 3.6f, 9f),
+                mats.Brick, mats.Concrete, mats.DarkGlass, doorPrefab, true, 90f);
 
             BuildBuilding(city.transform, "City_GasStationKiosk", new Vector3(17f, 0f, 70f), new Vector3(7f, 3.2f, 6f),
                 mats.Brick, mats.Concrete, mats.DarkGlass, doorPrefab, false, -90f);
-            ShopAndGasBuilder.BuildGasStationInterior(city.transform.Find("City_GasStationKiosk"), mats, abandonedMats);
             CreatePart(city.transform, "GasCanopy_Roof", new Vector3(11f, 3.4f, 70f), new Vector3(6f, 0.3f, 8f), mats.RustyMetal, true);
             CreatePart(city.transform, "GasCanopy_PillarA", new Vector3(11f, 1.7f, 67f), new Vector3(0.35f, 3.4f, 0.35f), mats.Concrete, true);
             CreatePart(city.transform, "GasCanopy_PillarB", new Vector3(11f, 1.7f, 73f), new Vector3(0.35f, 3.4f, 0.35f), mats.Concrete, true);
-            ShopAndGasBuilder.BuildGasStationExterior(city.transform, new Vector3(11f, 0f, 70f), mats, abandonedMats);
+            CreatePart(city.transform, "FuelPump_1", new Vector3(11f, 0.7f, 69f), new Vector3(0.6f, 1.4f, 0.5f), mats.RustyMetal, true);
+            CreatePart(city.transform, "FuelPump_2", new Vector3(11f, 0.7f, 71f), new Vector3(0.6f, 1.4f, 0.5f), mats.RustyMetal, true);
 
             // Склад и медпункт.
             BuildBuilding(city.transform, "City_Warehouse", new Vector3(-17f, 0f, 110f), new Vector3(13f, 4.5f, 12f),
@@ -1161,7 +1112,6 @@ namespace Ogni.EditorTools
 
             BuildBuilding(city.transform, "City_Clinic", new Vector3(17f, 0f, 110f), new Vector3(11f, 3.8f, 10f),
                 mats.Concrete, mats.Concrete, mats.DarkGlass, doorPrefab, true, -90f);
-            ShopAndGasBuilder.FurnishClinic(city.transform.Find("City_Clinic"), mats, abandonedMats);
 
             // Заброшенные панельные дома с подъездами, лестницами и квартирами.
             ApartmentBlockBuilder.Build(city.transform, "PanelBlock_West", new Vector3(-28f, 0f, 138f), 90f, 4, 1001, mats, abandonedMats, doorPrefab);
@@ -1211,12 +1161,14 @@ namespace Ogni.EditorTools
                     site.Floors, mats, abandonedMats, doorPrefab, site.Yaw, site.Variant);
             }
 
-            // Дополнительный жилой дом с полным интерьером и автосервис.
-            BuildHouseWithYard(city.transform, "City_HouseNorthW", new Vector3(-20f, 0f, 158f), 90f, mats, abandonedMats, doorPrefab);
+            // Дополнительные дома с мебелью внутри.
+            BuildBuilding(city.transform, "City_HouseNorthW", new Vector3(-20f, 0f, 158f), new Vector3(9f, 3.4f, 8f),
+                mats.Brick, mats.Concrete, mats.DarkGlass, doorPrefab, true, 90f);
+            CreatePart(city.transform, "HouseW_Table", new Vector3(-21f, 0.4f, 158f), new Vector3(1.2f, 0.8f, 0.9f), abandonedMats.WoodDark, true);
+            CreatePart(city.transform, "HouseW_Bed", new Vector3(-22.5f, 0.3f, 160f), new Vector3(1.1f, 0.5f, 2.0f), abandonedMats.Fabric, true);
 
             BuildBuilding(city.transform, "City_AutoService", new Vector3(20f, 0f, 158f), new Vector3(11f, 3.8f, 9f),
                 mats.Concrete, mats.RustyMetal, mats.DarkGlass, doorPrefab, false, -90f);
-            ShopAndGasBuilder.FurnishAutoService(city.transform.Find("City_AutoService"), mats, abandonedMats);
             CreatePart(city.transform, "Auto_Rack", new Vector3(22f, 1.0f, 158f), new Vector3(0.8f, 2.0f, 3.2f), mats.RustyMetal, true);
 
 
@@ -1247,6 +1199,8 @@ namespace Ogni.EditorTools
             }
 
             // Наполнение магазина, склада и медпункта внутри.
+            CreatePart(city.transform, "Shop_Counter", new Vector3(-17.5f, 0.5f, 70f), new Vector3(0.8f, 1.0f, 4.5f), abandonedMats.WoodDark, true);
+            CreatePart(city.transform, "Shop_Shelf", new Vector3(-19f, 1.0f, 67.5f), new Vector3(0.6f, 2.0f, 3.5f), abandonedMats.WoodDark, true);
             CreatePart(city.transform, "Warehouse_Crate1", new Vector3(-18f, 0.6f, 112f), new Vector3(1.5f, 1.2f, 1.5f), mats.WoodPlanks, true);
             CreatePart(city.transform, "Warehouse_Crate2", new Vector3(-15f, 0.5f, 107f), new Vector3(1.2f, 1.0f, 1.2f), mats.WoodPlanks, true);
             CreatePart(city.transform, "Clinic_Bed1", new Vector3(18.5f, 0.35f, 108f), new Vector3(2.0f, 0.5f, 1.0f), abandonedMats.Fabric, true);
@@ -1254,7 +1208,6 @@ namespace Ogni.EditorTools
 
             // Шаг 3: лужи, растительность, остовы машин, столбы, остановки, силуэты башен.
             CityDetailBuilder.Build(city.transform, mats, abandonedMats);
-            ShopAndGasBuilder.BuildPostApocalypseProps(city.transform, mats, abandonedMats);
         }
 
         private static void BuildHouseWithYard(
@@ -1263,36 +1216,11 @@ namespace Ogni.EditorTools
         {
             GameObject yard = new GameObject(name + "_Yard");
             yard.transform.SetParent(parent, false);
-            yard.transform.localPosition = pos;
-            yard.transform.localRotation = Quaternion.Euler(0f, yaw, 0f);
+            yard.transform.position = pos;
+            yard.transform.rotation = Quaternion.Euler(0f, yaw, 0f);
 
             BuildBuilding(yard.transform, "House", Vector3.zero, new Vector3(9f, 3.4f, 8f),
                 mats.Brick, mats.Concrete, mats.DarkGlass, doorPrefab, true, 0f);
-
-            // Реалистичный интерьер частного дома (мебель, ковёр, кухня, картины, светильник).
-            Transform houseT = yard.transform.Find("House");
-            if (houseT != null)
-            {
-                int seed = Mathf.Abs(Mathf.RoundToInt(pos.x * 19f + pos.z * 31f)) + 517;
-                PropKit kit = new PropKit(ab, mats, new System.Random(seed));
-                const float fy = 0.06f;
-                kit.Rug(houseT, new Vector3(-0.3f, fy + 0.01f, 0.2f), 0f, 3.4f, 2.6f);
-                kit.Sofa(houseT, new Vector3(-2.6f, fy, 0.2f), 90f);
-                kit.TvStand(houseT, new Vector3(0.4f, fy, 0.2f), -90f);
-                kit.Table(houseT, new Vector3(-2.2f, fy, -2.4f), 0f, 1.35f, 0.85f);
-                kit.Chair(houseT, new Vector3(-2.2f, fy, -1.65f), 180f, false);
-                kit.Chair(houseT, new Vector3(-1.3f, fy, -2.4f), -90f, kit.Chance(0.35f));
-                kit.KitchenCounter(houseT, new Vector3(2.6f, fy, -3.45f), 0f, 1.8f);
-                kit.Stove(houseT, new Vector3(3.8f, fy, -3.45f), 0f);
-                kit.Fridge(houseT, new Vector3(3.85f, fy, -1.8f), -90f);
-                kit.Bed(houseT, new Vector3(2.8f, fy, 1.8f), 180f);
-                kit.Wardrobe(houseT, new Vector3(3.9f, fy, 0.2f), -90f);
-                kit.Bookshelf(houseT, new Vector3(-3.95f, fy, -2.2f), 90f);
-                kit.CeilingLamp(houseT, new Vector3(0f, 3.35f, 0f));
-                kit.FloorLamp(houseT, new Vector3(-3.8f, fy, 2.6f));
-                kit.WallPicture(houseT, new Vector3(-4.20f, fy + 1.65f, 0.2f), 90f, 0.90f, 0.62f);
-                kit.WallClock(houseT, new Vector3(0f, fy + 1.95f, -3.72f), 0f);
-            }
 
             // Площадка вокруг дома расчищена от забора, сарая, бочек и поленницы.
 
@@ -1573,7 +1501,7 @@ namespace Ogni.EditorTools
                 float x = Random.Range(-45f, 45f);
                 float z = Random.Range(-30f, 45f);
                 if (Mathf.Abs(x) < 4f && Mathf.Abs(z) < 4f) continue;
-                float y = WorldLayout.SampleWorldHeight(terrain, x, z);
+                float y = terrain != null ? terrain.SampleHeight(new Vector3(x, 0f, z)) : 0f;
                 SpawnPickup(group.transform, i % 2 == 0 ? wood : stone, new Vector3(x, y, z), Random.Range(0f, 360f));
             }
 

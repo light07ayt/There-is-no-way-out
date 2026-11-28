@@ -339,13 +339,14 @@ namespace Ogni.Entities
 
         private IDamageable FindNearestPlayer(float radius)
         {
-            NetworkObject[] objects = FindObjectsByType<NetworkObject>(FindObjectsSortMode.None);
+            if (NetworkManager == null) return null;
             IDamageable best = null;
             float bestSqr = radius * radius;
-            for (int i = 0; i < objects.Length; i++)
+            var clients = NetworkManager.ConnectedClientsList;
+            for (int i = 0; i < clients.Count; i++)
             {
-                NetworkObject obj = objects[i];
-                if (obj == null || !obj.IsPlayerObject) continue;
+                NetworkObject obj = clients[i].PlayerObject;
+                if (obj == null) continue;
                 IDamageable candidate = obj.GetComponent<IDamageable>();
                 if (candidate == null || !candidate.IsAlive) continue;
                 float sqr = (candidate.TargetTransform.position - transform.position).sqrMagnitude;

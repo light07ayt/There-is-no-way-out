@@ -30,7 +30,38 @@ namespace Ogni.EditorTools
             Run,
             Jump,
             Attack,
+            AttackKick,
             Death
+        }
+
+        // Фильтр пака капоэйры: отбрасываем акробатику, сальто, колёса и танцы,
+        // оставляя только модель (Ch02_nonPBR) и чистые стоячие удары ногой (bencao / pontera).
+        private static readonly string[] FilteredCapoeiraTokens =
+        {
+            "capoeira", "ginga", "esquiva", "macaco", "rasteira", "armada",
+            "queshada", "troca", "giratoria", "compasso", "chapaeu",
+            "martelo", "meia lua", "chapa"
+        };
+
+        private static bool IsFilteredOutCapoeiraFile(string fileName)
+        {
+            if (string.IsNullOrEmpty(fileName)) return false;
+            string lower = fileName.ToLowerInvariant().Trim();
+            if (lower == "au" || lower.StartsWith("au ")) return true;
+            foreach (string token in FilteredCapoeiraTokens)
+            {
+                if (lower.Contains(token)) return true;
+            }
+            return false;
+        }
+
+        private static bool IsStandaloneAnimationFile(string fileName)
+        {
+            if (string.IsNullOrEmpty(fileName)) return false;
+            string lower = fileName.ToLowerInvariant();
+            if (IsFilteredOutCapoeiraFile(lower)) return true;
+            if (lower.Contains("bencao") || lower.Contains("pontera")) return true;
+            return false;
         }
 
         [MenuItem("Ogni/Setup Character Models")]
@@ -58,54 +89,61 @@ namespace Ogni.EditorTools
             AnimationClip runClip = null;
             AnimationClip jumpClip = null;
             AnimationClip attackClip = null;
+            AnimationClip attackKickClip = null;
             AnimationClip deathClip = null;
+            int skippedCapoeira = 0;
 
             // 1. Настраиваем импорт всех моделей: Humanoid-риг, текстуры и материалы.
             foreach (string guid in modelGuids)
             {
                 string path = AssetDatabase.GUIDToAssetPath(guid);
-                ClipKind fileKind = ClassifyByName(Path.GetFileNameWithoutExtension(path));
+                string baseName = Path.GetFileNameWithoutExtension(path);
+                if (IsFilteredOutCapoeiraFile(baseName))
+                {
+                    skippedCapoeira++;
+                    continue;
+                }
+                ClipKind fileKind = ClassifyByName(baseName);
                 bool shouldLoop = ShouldLoopClip(fileKind == ClipKind.Unknown ? ClipKind.Walk : fileKind);
-                ConfigureModelImporter(path, extractMaterials: true, loopTime: shouldLoop);
+                ConfigureModelImporter(path, extractMaterials: !IsStandaloneAnimationFile(baseName), loopTime: shouldLoop);
 
-                CollectClipsFromAsset(path, ref idleClip, ref walkClip, ref runClip, ref jumpClip, ref attackClip, ref deathClip, fallbackToWalk: true);
+                CollectClipsFromAsset(path, ref idleClip, ref walkClip, ref runClip, ref jumpClip, ref attackClip, ref attackKickClip, ref deathClip, fallbackToWalk: !IsStandaloneAnimationFile(baseName));
             }
 
             // 2. Настраиваем отдельные FBX-анимации в Assets/_Project/Characters/Animations/.
             foreach (string guid in animGuids)
             {
                 string path = AssetDatabase.GUIDToAssetPath(guid);
-                ClipKind fileKind = ClassifyByName(Path.GetFileNameWithoutExtension(path));
+                string baseName = Path.GetFileNameWithoutExtension(path);
+                if (IsFilteredOutCapoeiraFile(baseName))
+                {
+                    skippedCapoeira++;
+                    continue;
+                }
+                ClipKind fileKind = ClassifyByName(baseName);
                 bool shouldLoop = ShouldLoopClip(fileKind);
                 ConfigureModelImporter(path, extractMaterials: false, loopTime: shouldLoop);
 
-                CollectClipsFromAsset(path, ref idleClip, ref walkClip, ref runClip, ref jumpClip, ref attackClip, ref deathClip, fallbackToWalk: false);
+                CollectClipsFromAsset(path, ref idleClip, ref walkClip, ref runClip, ref jumpClip, ref attackClip, ref attackKickClip, ref deathClip, fallbackToWalk: false);
             }
 
             FixExtractedMaterials();
 
             // 3. Создаём/обновляем AnimatorController со всеми состояниями персонажа.
-            AnimatorController controller = BuildAnimatorController(idleClip, walkClip, runClip, jumpClip, attackClip, deathClip);
+            AnimatorController controller = BuildAnimatorController(idleClip, walkClip, runClip, jumpClip, attackClip, attackKickClip, deathClip);
 
             // 4. Генерируем префабы в Resources/Characters/.
             int count = 0;
             foreach (string guid in modelGuids)
             {
                 string path = AssetDatabase.GUIDToAssetPath(guid);
+                string baseName = Path.GetFileNameWithoutExtension(path);
+                if (IsStandaloneAnimationFile(baseName)) continue;
                 GameObject modelAsset = AssetDatabase.LoadAssetAtPath<GameObject>(path);
                 if (modelAsset == null) continue;
 
-                // Пропускаем FBX без геометрии (только скелет/анимация), чтобы в меню не было пустых слотов.
-                bool hasMesh = modelAsset.GetComponentInChildren<SkinnedMeshRenderer>(true) != null
-                    || modelAsset.GetComponentInChildren<MeshFilter>(true) != null;
                 string cleanName = Path.GetFileNameWithoutExtension(path).Replace(" ", "_");
                 string prefabPath = $"{ResourcesCharsFolder}/Char_{cleanName}.prefab";
-                if (!hasMesh)
-                {
-                    if (AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath) != null)
-                        AssetDatabase.DeleteAsset(prefabPath);
-                    continue;
-                }
 
                 GameObject instance = (GameObject)PrefabUtility.InstantiatePrefab(modelAsset);
                 Animator anim = instance.GetComponent<Animator>();
@@ -127,7 +165,9 @@ namespace Ogni.EditorTools
                 $"Run={(runClip != null ? runClip.name : "-")}, " +
                 $"Jump={(jumpClip != null ? jumpClip.name : "-")}, " +
                 $"Attack={(attackClip != null ? attackClip.name : "-")}, " +
-                $"Death={(deathClip != null ? deathClip.name : "-")}.");
+                $"AttackKick={(attackKickClip != null ? attackKickClip.name : "-")}, " +
+                $"Death={(deathClip != null ? deathClip.name : "-")}, " +
+                $"отфильтровано лишних клипов капоэйры: {skippedCapoeira}.");
         }
 
         private static ClipKind ClassifyByName(string name)
@@ -137,6 +177,7 @@ namespace Ogni.EditorTools
 
             if (lower.Contains("death") || lower.Contains("die") || lower.Contains("downed")) return ClipKind.Death;
             if (lower.Contains("jump")) return ClipKind.Jump;
+            if (lower.Contains("bencao") || lower.Contains("pontera")) return ClipKind.AttackKick;
             if (lower.Contains("punch") || lower.Contains("attack") || lower.Contains("melee") || lower.Contains("swing") || lower.Contains("hit")) return ClipKind.Attack;
             if (lower.Contains("run") || lower.Contains("sprint")) return ClipKind.Run;
             if (lower.Contains("idle")) return ClipKind.Idle;
@@ -157,6 +198,7 @@ namespace Ogni.EditorTools
             ref AnimationClip runClip,
             ref AnimationClip jumpClip,
             ref AnimationClip attackClip,
+            ref AnimationClip attackKickClip,
             ref AnimationClip deathClip,
             bool fallbackToWalk)
         {
@@ -182,6 +224,10 @@ namespace Ogni.EditorTools
                         break;
                     case ClipKind.Attack:
                         attackClip = clip;
+                        break;
+                    case ClipKind.AttackKick:
+                        if (attackKickClip == null || fileName.ToLowerInvariant().Contains("bencao"))
+                            attackKickClip = clip;
                         break;
                     case ClipKind.Death:
                         deathClip = clip;
@@ -213,18 +259,15 @@ namespace Ogni.EditorTools
 
             if (extractMaterials)
             {
-                string modelKey = Path.GetFileNameWithoutExtension(assetPath).Replace(" ", "_");
-                string modelTexFolder = $"{TexturesFolder}/{modelKey}";
-                EnsureFolder(modelTexFolder);
-                importer.ExtractTextures(modelTexFolder);
+                importer.ExtractTextures(TexturesFolder);
                 if (importer.materialLocation != ModelImporterMaterialLocation.External)
                 {
                     importer.materialLocation = ModelImporterMaterialLocation.External;
                     dirty = true;
                 }
-                if (importer.materialName != ModelImporterMaterialName.BasedOnModelNameAndMaterialName)
+                if (importer.materialName != ModelImporterMaterialName.BasedOnMaterialName)
                 {
-                    importer.materialName = ModelImporterMaterialName.BasedOnModelNameAndMaterialName;
+                    importer.materialName = ModelImporterMaterialName.BasedOnMaterialName;
                     dirty = true;
                 }
             }
@@ -307,27 +350,6 @@ namespace Ogni.EditorTools
                 string lower = mat.name.ToLowerInvariant();
                 bool isHair = lower.Contains("hair") || lower.Contains("beard") || lower.Contains("brow") || lower.Contains("lash");
 
-                if (mat.shader != null && mat.shader.name == "Standard")
-                {
-                    Shader urpLit = Shader.Find("Universal Render Pipeline/Lit");
-                    if (urpLit != null)
-                    {
-                        Texture mainTex = mat.HasProperty("_MainTex") ? mat.GetTexture("_MainTex") : null;
-                        Color col = mat.HasProperty("_Color") ? mat.GetColor("_Color") : Color.white;
-                        mat.shader = urpLit;
-                        if (mainTex != null && mat.HasProperty("_BaseMap")) mat.SetTexture("_BaseMap", mainTex);
-                        if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", col);
-                    }
-                }
-
-                if (mat.HasProperty("_Metallic"))
-                {
-                    mat.SetFloat("_Metallic", 0f);
-                }
-                if (mat.HasProperty("_BumpScale"))
-                {
-                    mat.SetFloat("_BumpScale", 0.25f);
-                }
                 if (mat.HasProperty("_Smoothness"))
                 {
                     mat.SetFloat("_Smoothness", isHair ? 0.05f : 0.15f);
@@ -353,6 +375,7 @@ namespace Ogni.EditorTools
             AnimationClip runClip,
             AnimationClip jumpClip,
             AnimationClip attackClip,
+            AnimationClip attackKickClip,
             AnimationClip deathClip)
         {
             AnimatorController controller = AssetDatabase.LoadAssetAtPath<AnimatorController>(ControllerPath);
@@ -377,6 +400,7 @@ namespace Ogni.EditorTools
             });
             controller.AddParameter("Jump", AnimatorControllerParameterType.Trigger);
             controller.AddParameter("Attack", AnimatorControllerParameterType.Trigger);
+            controller.AddParameter("AttackVariant", AnimatorControllerParameterType.Int);
 
             AnimatorStateMachine sm = controller.layers[0].stateMachine;
             foreach (AnimatorStateTransition anyTr in sm.anyStateTransitions)
@@ -521,6 +545,10 @@ namespace Ogni.EditorTools
                 AnimatorStateTransition anyToAttack = sm.AddAnyStateTransition(attackState);
                 anyToAttack.AddCondition(AnimatorConditionMode.If, 0f, "Attack");
                 anyToAttack.AddCondition(AnimatorConditionMode.IfNot, 0f, "IsDead");
+                if (attackKickClip != null)
+                {
+                    anyToAttack.AddCondition(AnimatorConditionMode.Equals, 0, "AttackVariant");
+                }
                 anyToAttack.canTransitionToSelf = true;
                 anyToAttack.hasExitTime = false;
                 anyToAttack.duration = 0.08f;
@@ -551,6 +579,48 @@ namespace Ogni.EditorTools
                 attackToIdle.hasExitTime = true;
                 attackToIdle.exitTime = 0.85f;
                 attackToIdle.duration = 0.15f;
+            }
+
+            // --- AttackKick (отфильтрованный стоячий удар ногой для девушки: bencao / pontera) ---
+            if (attackKickClip != null)
+            {
+                AnimatorState kickState = sm.AddState("AttackKick", new Vector3(780f, 270f, 0f));
+                kickState.motion = attackKickClip;
+
+                AnimatorStateTransition anyToKick = sm.AddAnyStateTransition(kickState);
+                anyToKick.AddCondition(AnimatorConditionMode.If, 0f, "Attack");
+                anyToKick.AddCondition(AnimatorConditionMode.IfNot, 0f, "IsDead");
+                anyToKick.AddCondition(AnimatorConditionMode.Equals, 1, "AttackVariant");
+                anyToKick.canTransitionToSelf = true;
+                anyToKick.hasExitTime = false;
+                anyToKick.duration = 0.08f;
+
+                if (runState != null)
+                {
+                    AnimatorStateTransition kickToRun = kickState.AddTransition(runState);
+                    kickToRun.AddCondition(AnimatorConditionMode.Greater, RunEnterThreshold, "Speed");
+                    kickToRun.hasExitTime = true;
+                    kickToRun.exitTime = 0.85f;
+                    kickToRun.duration = 0.15f;
+                }
+
+                if (walkState != null)
+                {
+                    AnimatorStateTransition kickToWalk = kickState.AddTransition(walkState);
+                    kickToWalk.AddCondition(AnimatorConditionMode.Greater, WalkThreshold, "Speed");
+                    if (runState != null)
+                    {
+                        kickToWalk.AddCondition(AnimatorConditionMode.Less, RunEnterThreshold, "Speed");
+                    }
+                    kickToWalk.hasExitTime = true;
+                    kickToWalk.exitTime = 0.85f;
+                    kickToWalk.duration = 0.15f;
+                }
+
+                AnimatorStateTransition kickToIdle = kickState.AddTransition(idleState);
+                kickToIdle.hasExitTime = true;
+                kickToIdle.exitTime = 0.85f;
+                kickToIdle.duration = 0.15f;
             }
 
             // --- Death / Downed ---

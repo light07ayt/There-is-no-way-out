@@ -167,33 +167,23 @@ namespace Ogni.EditorTools
         private static void Forearm(Transform root, Mats m, string tag, Vector3 elbow, Vector3 wrist)
         {
             Vector3 dir = (wrist - elbow).normalized;
-            Vector3 cuff = wrist - dir * 0.045f;
+            Vector3 cuff = wrist - dir * 0.05f;
 
-            // Закрытая манжета: последний сегмент стягивается до радиуса запястья, убирая чёрную полую дыру в рукаве.
-            Vector3[] sleevePath = new Vector3[7];
-            float[] ra = new float[7];
+            Vector3[] sleevePath = new Vector3[6];
+            float[] ra = new float[6];
             for (int i = 0; i < 6; i++)
             {
                 float t = i / 5f;
                 sleevePath[i] = Vector3.Lerp(elbow, cuff, t);
-                ra[i] = Mathf.Lerp(0.060f, 0.042f, t);
+                ra[i] = Mathf.Lerp(0.062f, 0.043f, t) * (i == 5 ? 1.12f : 1f);
             }
-            sleevePath[6] = cuff + dir * 0.004f;
-            ra[6] = 0.031f;
 
-            Mesh sleeve = MeshKit.SaveOrUpdate(MeshKit.Tube("VM_Sleeve_" + tag, sleevePath, ra, ra, 14), "VM_Sleeve_" + tag);
+            Mesh sleeve = MeshKit.SaveOrUpdate(MeshKit.Tube("VM_Sleeve_" + tag, sleevePath, ra, ra, 10), "VM_Sleeve_" + tag);
             Part(root, "VM_Sleeve_" + tag, sleeve, m.Sleeve, Vector3.zero, Vector3.zero);
 
-            // Запястье заходит глубоко внутрь рукава и внутрь ладони — никаких просветов.
-            Vector3[] skinPath =
-            {
-                cuff - dir * 0.035f,
-                cuff,
-                Vector3.Lerp(cuff, wrist, 0.5f),
-                wrist + dir * 0.032f
-            };
-            float[] rb = { 0.033f, 0.033f, 0.032f, 0.035f };
-            Mesh skin = MeshKit.SaveOrUpdate(MeshKit.Tube("VM_SkinArm_" + tag, skinPath, rb, rb, 14), "VM_SkinArm_" + tag);
+            Vector3[] skinPath = { cuff - dir * 0.005f, Vector3.Lerp(cuff, wrist, 0.5f), wrist + dir * 0.012f };
+            float[] rb = { 0.034f, 0.031f, 0.034f };
+            Mesh skin = MeshKit.SaveOrUpdate(MeshKit.Tube("VM_SkinArm_" + tag, skinPath, rb, rb, 10), "VM_SkinArm_" + tag);
             Part(root, "VM_Skin_Wrist_" + tag, skin, m.Skin, Vector3.zero, Vector3.zero);
         }
 
@@ -207,8 +197,8 @@ namespace Ogni.EditorTools
             for (int side = -1; side <= 1; side += 2)
             {
                 string tag = side < 0 ? "L" : "R";
-                Vector3 wrist = new Vector3(side * 0.17f, -0.22f, 0.44f);
-                Quaternion rot = Quaternion.Euler(12f, side * -18f, side * 16f);
+                Vector3 wrist = new Vector3(side * 0.20f, -0.27f, 0.42f);
+                Quaternion rot = Quaternion.Euler(-8f, side * -10f, side * 12f);
                 Vector3 back = rot * Vector3.back;
                 // Каждая рука - свой пивот в локте (за кадром): при ударе PlayerEquipment двигает руку целиком.
                 Vector3 elbow = wrist + back * 0.12f + new Vector3(side * 0.12f, -0.42f, -0.02f);

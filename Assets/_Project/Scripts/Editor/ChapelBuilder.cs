@@ -30,7 +30,6 @@ namespace Ogni.EditorTools
             BuildSteeple(t, mats);
             BuildInterior(t, rng, mats, ab);
             BuildGraveyard(t, rng, mats, ab);
-            SiteExtras.BuildChapelExteriorExtras(t, mats, ab);
 
             // Статические флаги для оптимизации рендера (двери, свет и триггеры оставляем динамическими).
             foreach (Transform child in root.GetComponentsInChildren<Transform>(true))

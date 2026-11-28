@@ -21,9 +21,11 @@ namespace Ogni.Player
         private static readonly int IsDeadHash = Animator.StringToHash("IsDead");
         private static readonly int JumpHash = Animator.StringToHash("Jump");
         private static readonly int AttackHash = Animator.StringToHash("Attack");
+        private static readonly int AttackVariantHash = Animator.StringToHash("AttackVariant");
 
         private static GameObject[] _cachedPrefabs;
         private static string[] _cachedNames;
+        private static bool[] _cachedFemale;
 
         private GameObject _visualRoot;
         private Renderer[] _visualRenderers = Array.Empty<Renderer>();
@@ -46,6 +48,12 @@ namespace Ogni.Player
         private bool _hasDeadParam;
         private bool _hasJumpParam;
         private bool _hasAttackParam;
+        private bool _hasAttackVariantParam;
+        private bool _isFemale;
+        private int _femaleAttackToggle;
+        private readonly System.Collections.Generic.Dictionary<Transform, Vector3> _baseVmScales = new();
+
+        public bool IsFemale => _isFemale;
 
         private void Awake()
         {
@@ -58,6 +66,68 @@ namespace Ogni.Player
         {
             _cachedPrefabs = null;
             _cachedNames = null;
+            _cachedFemale = null;
+            _warnedRoster = false;
+        }
+
+        public static bool IsFemaleModelName(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return false;
+            string low = name.ToLowerInvariant();
+            // Явные мужские имена всегда считаем мужскими
+            if (low.Contains("male") && !low.Contains("female")) return false;
+            if (low.Contains("boy") || low.Contains("man") && !low.Contains("woman")) return false;
+            if (low.Contains("leo") || low.Contains("joey") || low.Contains("remy") || low.Contains("adam")
+                || low.Contains("douglas") || low.Contains("david") || low.Contains("bryce") || low.Contains("ch09")
+                || low.Contains("ch14") || low.Contains("ch17") || low.Contains("ch24") || low.Contains("ch31"))
+                return false;
+
+            return low.Contains("ch02") || low.Contains("ch03") || low.Contains("ch07") || low.Contains("ch12")
+                   || low.Contains("ch15") || low.Contains("ch22") || low.Contains("ch46")
+                   || low.Contains("female") || low.Contains("girl") || low.Contains("woman")
+                   || low.Contains("lady") || low.Contains("maria") || low.Contains("claire")
+                   || low.Contains("elena") || low.Contains("kate") || low.Contains("anna")
+                   || low.Contains("megan") || low.Contains("amy") || low.Contains("sophie");
+        }
+
+        public static bool IsModelFemale(int index)
+        {
+            EnsureCatalogLoaded();
+            if (_cachedFemale == null || _cachedFemale.Length == 0) return false;
+            int idx = Mathf.Abs(index) % _cachedFemale.Length;
+            return _cachedFemale[idx];
+        }
+
+        public static string[] GetLocalizedModelNames(bool english)
+        {
+            EnsureCatalogLoaded();
+            if (_cachedPrefabs == null || _cachedPrefabs.Length == 0)
+                return new[] { english ? "Male" : "Мужчина" };
+
+            int maleTotal = 0, femaleTotal = 0;
+            for (int i = 0; i < _cachedFemale.Length; i++)
+            {
+                if (_cachedFemale[i]) femaleTotal++; else maleTotal++;
+            }
+
+            string[] labels = new string[_cachedPrefabs.Length];
+            int mIdx = 0, fIdx = 0;
+            for (int i = 0; i < _cachedPrefabs.Length; i++)
+            {
+                if (_cachedFemale[i])
+                {
+                    fIdx++;
+                    string baseLabel = english ? "Female" : "Девушка";
+                    labels[i] = femaleTotal > 1 ? $"{baseLabel} {fIdx}" : baseLabel;
+                }
+                else
+                {
+                    mIdx++;
+                    string baseLabel = english ? "Male" : "Мужчина";
+                    labels[i] = maleTotal > 1 ? $"{baseLabel} {mIdx}" : baseLabel;
+                }
+            }
+            return labels;
         }
 
         public static string[] GetAvailableModelNames()
@@ -81,36 +151,29 @@ namespace Ogni.Player
             {
                 _cachedPrefabs = Array.Empty<GameObject>();
                 _cachedNames = Array.Empty<string>();
+                _cachedFemale = Array.Empty<bool>();
                 return;
             }
 
-            // Отфильтровываем пустые анимационные FBX-префабы без 3D-меша (например bencao, pontera).
-            var valid = new System.Collections.Generic.List<GameObject>(loaded.Length);
+            // Сортируем так, чтобы мужской персонаж шёл первым (индекс 0), а женский следом — старые сохранения не собьются.
+            Array.Sort(loaded, (a, b) =>
+            {
+                bool fa = IsFemaleModelName(a.name);
+                bool fb = IsFemaleModelName(b.name);
+                if (fa != fb) return fa ? 1 : -1;
+                return string.CompareOrdinal(a.name, b.name);
+            });
+            _cachedPrefabs = loaded;
+            _cachedNames = new string[loaded.Length];
+            _cachedFemale = new bool[loaded.Length];
             for (int i = 0; i < loaded.Length; i++)
             {
-                GameObject go = loaded[i];
-                if (go == null) continue;
-                bool hasMesh = false;
-                foreach (SkinnedMeshRenderer smr in go.GetComponentsInChildren<SkinnedMeshRenderer>(true))
-                    if (smr.sharedMesh != null) { hasMesh = true; break; }
-                if (!hasMesh)
-                {
-                    foreach (MeshFilter mf in go.GetComponentsInChildren<MeshFilter>(true))
-                        if (mf.sharedMesh != null) { hasMesh = true; break; }
-                }
-                if (hasMesh) valid.Add(go);
-            }
-
-            valid.Sort((a, b) => string.CompareOrdinal(a.name, b.name));
-            _cachedPrefabs = valid.ToArray();
-            _cachedNames = new string[_cachedPrefabs.Length];
-            for (int i = 0; i < _cachedPrefabs.Length; i++)
-            {
-                string n = _cachedPrefabs[i].name;
+                string n = loaded[i].name;
                 if (n.StartsWith("Char_", StringComparison.OrdinalIgnoreCase)) n = n.Substring(5);
-                n = n.Replace("_nonPBR", "").Replace("nonPBR", "").Replace('_', ' ').Trim();
-                _cachedNames[i] = string.IsNullOrEmpty(n) ? $"Выживший {i + 1}" : $"Выживший {i + 1} ({n})";
+                _cachedNames[i] = n.Replace('_', ' ');
+                _cachedFemale[i] = IsFemaleModelName(loaded[i].name);
             }
+            Debug.Log("[Ogni] Загружены модели персонажей (" + loaded.Length + "): " + string.Join(", ", _cachedNames));
         }
 
         public void SetFirstPersonLocalMode(bool isLocalOwner)
@@ -136,25 +199,21 @@ namespace Ogni.Player
             _animator.SetTrigger(JumpHash);
         }
 
-        public void TriggerAttack()
+        public void TriggerAttack(bool unarmed = false)
         {
             if (_animator == null || _isDead || !_hasAttackParam) return;
+            if (_hasAttackVariantParam)
+            {
+                // Для девушки в рукопашной чередуем удар кулаком и отфильтрованный прямой удар ногой (bencao/pontera).
+                int variant = 0;
+                if (_isFemale && unarmed)
+                {
+                    variant = _femaleAttackToggle & 1;
+                    _femaleAttackToggle++;
+                }
+                _animator.SetInteger(AttackVariantHash, variant);
+            }
             _animator.SetTrigger(AttackHash);
-        }
-
-        public void TriggerAttack(bool isAlternate)
-        {
-            TriggerAttack();
-        }
-
-        public void TriggerAttack(int slotIndex)
-        {
-            TriggerAttack();
-        }
-
-        public void TriggerAttack(PlayerEquipment.ToolSlot slot)
-        {
-            TriggerAttack();
         }
 
         public void Apply(CharacterAppearance data)
@@ -170,9 +229,11 @@ namespace Ogni.Player
 
             EnsureCatalogLoaded();
 
+            SquadRoster.CharacterSlot rosterSlot = SquadRoster.GetSlot(data.ModelIndex);
+            _isFemale = rosterSlot.Gender == CharacterGender.Female;
             if (_cachedPrefabs.Length > 0)
             {
-                int idx = data.ModelIndex % _cachedPrefabs.Length;
+                int idx = ResolvePrefabIndexForRosterSlot(data.ModelIndex);
                 _visualRoot = Instantiate(_cachedPrefabs[idx], transform, false);
                 _visualRoot.name = "BodyVisualRoot";
                 _visualRoot.transform.localPosition = new Vector3(0f, 0f, _firstPersonLocal ? LocalBodyOffsetZ : 0f);
@@ -218,7 +279,66 @@ namespace Ogni.Player
             UpdateLocalDeathVisibility(force: true);
 
             _lastPos = transform.position;
-            TintViewModelsFromModel(data.ModelIndex);
+            ApplyRosterOutfitTint(rosterSlot.OutfitTint);
+            TintViewModelsFromModel();
+        }
+
+        private static int ResolvePrefabIndexForRosterSlot(int slotIndex)
+        {
+            SquadRoster.CharacterSlot slot = SquadRoster.GetSlot(slotIndex);
+            bool wantFemale = slot.Gender == CharacterGender.Female;
+            int ordinalInGender = (slot.SlotIndex == 1 || slot.SlotIndex == 3) ? 1 : 0;
+
+            int firstMatch = -1;
+            int foundCount = 0;
+            WarnIfRosterModelsMissing();
+            for (int i = 0; i < _cachedPrefabs.Length; i++)
+            {
+                bool f = _cachedFemale != null && i < _cachedFemale.Length && _cachedFemale[i];
+                if (f != wantFemale) continue;
+                if (firstMatch < 0) firstMatch = i;
+                if (foundCount == ordinalInGender) return i;
+                foundCount++;
+            }
+            return firstMatch >= 0 ? firstMatch : (slot.SlotIndex % _cachedPrefabs.Length);
+        }
+
+        private static bool _warnedRoster;
+
+        private static void WarnIfRosterModelsMissing()
+        {
+            if (_warnedRoster || _cachedFemale == null) return;
+            _warnedRoster = true;
+            int f = 0, m = 0;
+            for (int i = 0; i < _cachedFemale.Length; i++) { if (_cachedFemale[i]) f++; else m++; }
+            if (f < 2 || m < 2)
+            {
+                Debug.LogWarning("[Ogni] Для состава из 4 друзей нужны 2 женские и 2 мужские модели в Resources/" + CharactersResourcePath
+                                 + ", а определено: женских " + f + ", мужских " + m + ". Названия: " + string.Join(", ", _cachedNames)
+                                 + ". Проверьте имена префабов (см. IsFemaleModelName).");
+            }
+        }
+
+        private void ApplyRosterOutfitTint(Color tint)
+        {
+            if (_visualRoot == null || tint == Color.white) return;
+            var mpb = new MaterialPropertyBlock();
+            foreach (Renderer r in _visualRenderers)
+            {
+                if (r == null) continue;
+                Material[] mats = r.sharedMaterials;
+                for (int i = 0; i < mats.Length; i++)
+                {
+                    if (mats[i] == null) continue;
+                    string n = mats[i].name.ToLowerInvariant();
+                    if (n.Contains("skin") || n.Contains("body") || n.Contains("hair") || n.Contains("lash") || n.Contains("eye"))
+                        continue;
+                    r.GetPropertyBlock(mpb, i);
+                    mpb.SetColor("_BaseColor", tint);
+                    mpb.SetColor("_Color", tint);
+                    r.SetPropertyBlock(mpb, i);
+                }
+            }
         }
 
         private void ResetParamFlags()
@@ -228,6 +348,7 @@ namespace Ogni.Player
             _hasDeadParam = false;
             _hasJumpParam = false;
             _hasAttackParam = false;
+            _hasAttackVariantParam = false;
         }
 
         private void CacheAnimatorParameters(Animator anim)
@@ -242,6 +363,7 @@ namespace Ogni.Player
                 else if (p.nameHash == IsDeadHash) _hasDeadParam = true;
                 else if (p.nameHash == JumpHash) _hasJumpParam = true;
                 else if (p.nameHash == AttackHash) _hasAttackParam = true;
+                else if (p.nameHash == AttackVariantHash) _hasAttackVariantParam = true;
             }
         }
 
@@ -407,65 +529,19 @@ namespace Ogni.Player
             if (t != null) t.localScale = Vector3.one;
         }
 
-        // Реалистичные тона кожи и рукавов для вьюмодели (руки от первого лица).
-        private static readonly Color[] SkinTones =
+        private static bool IsNearWhite(Color c)
         {
-            new Color(0.80f, 0.60f, 0.48f), new Color(0.70f, 0.50f, 0.38f), new Color(0.86f, 0.68f, 0.56f),
-            new Color(0.58f, 0.40f, 0.30f), new Color(0.76f, 0.56f, 0.44f), new Color(0.90f, 0.74f, 0.62f)
-        };
-
-        private static readonly Color[] SleeveTones =
-        {
-            new Color(0.17f, 0.20f, 0.15f), new Color(0.20f, 0.22f, 0.27f), new Color(0.26f, 0.19f, 0.15f),
-            new Color(0.13f, 0.14f, 0.16f), new Color(0.30f, 0.28f, 0.22f), new Color(0.22f, 0.12f, 0.12f)
-        };
-
-        // Средний цвет текстуры (даже нечитаемой): рисуем её в крошечный RenderTexture и читаем пиксели.
-        private static bool TryAverageColor(Texture tex, out Color avg)
-        {
-            avg = Color.white;
-            if (tex == null) return false;
-            try
-            {
-                RenderTexture rt = RenderTexture.GetTemporary(8, 8, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB);
-                RenderTexture prev = RenderTexture.active;
-                Graphics.Blit(tex, rt);
-                RenderTexture.active = rt;
-                Texture2D t2 = new Texture2D(8, 8, TextureFormat.RGBA32, false);
-                t2.ReadPixels(new Rect(0, 0, 8, 8), 0, 0);
-                t2.Apply();
-                RenderTexture.active = prev;
-                RenderTexture.ReleaseTemporary(rt);
-                Color sum = Color.black;
-                Color[] px = t2.GetPixels();
-                foreach (Color p in px) sum += p;
-                Destroy(t2);
-                avg = sum / px.Length;
-                avg.a = 1f;
-                return true;
-            }
-            catch (Exception)
-            {
-                return false;
-            }
+            return c.r > 0.95f && c.g > 0.95f && c.b > 0.95f;
         }
 
-        private static bool LooksLikeSkin(Color c)
-        {
-            Color.RGBToHSV(c, out float h, out float sat, out float val);
-            return (h < 0.11f || h > 0.95f) && sat > 0.18f && sat < 0.62f && val > 0.38f && val < 0.92f && c.r > c.g && c.g >= c.b * 0.9f;
-        }
-
-        private void TintViewModelsFromModel(int modelIndex)
+        private void TintViewModelsFromModel()
         {
             if (_visualRoot == null) return;
 
-            // Раньше цвет брался из _BaseColor материала модели - он почти всегда белый (цвет лежит в текстуре),
-            // поэтому руки от первого лица получались белыми. Теперь берём средний цвет текстуры, а если он не похож на
-            // кожу/ткань - подбираем естественный тон по номеру модели.
-            int pick = Mathf.Abs(modelIndex);
-            Color skin = SkinTones[pick % SkinTones.Length];
-            Color sleeve = SleeveTones[pick % SleeveTones.Length];
+            // Калиброванные естественные цвета кожи и рукавов под выбранного персонажа.
+            // У Mixamo-моделей с текстурой _BaseColor обычно чисто-белый, поэтому игнорируем белый цвет.
+            Color skin = _isFemale ? new Color(0.81f, 0.62f, 0.49f) : new Color(0.84f, 0.66f, 0.54f);
+            Color sleeve = _isFemale ? new Color(0.16f, 0.17f, 0.19f) : new Color(0.24f, 0.27f, 0.22f);
 
             foreach (Renderer r in _visualRenderers)
             {
@@ -474,29 +550,35 @@ namespace Ogni.Player
                 {
                     if (m == null) continue;
                     string n = m.name.ToLowerInvariant();
-                    bool isSkin = n.Contains("skin") || n.Contains("body") || n.Contains("face") || n.Contains("head");
-                    bool isCloth = n.Contains("top") || n.Contains("hoodie") || n.Contains("jacket") || n.Contains("shirt") || n.Contains("cloth");
-                    if (!isSkin && !isCloth) continue;
-
-                    Texture tex = m.HasProperty("_BaseMap") ? m.GetTexture("_BaseMap") : (m.HasProperty("_MainTex") ? m.GetTexture("_MainTex") : null);
-                    if (!TryAverageColor(tex, out Color avg)) continue;
-                    Color tint = m.HasProperty("_BaseColor") ? m.GetColor("_BaseColor") : Color.white;
-                    avg = new Color(avg.r * tint.r, avg.g * tint.g, avg.b * tint.b, 1f);
-
-                    if (isSkin && LooksLikeSkin(avg)) skin = Color.Lerp(skin, avg, 0.85f);
-                    else if (isCloth)
-                    {
-                        Color.RGBToHSV(avg, out _, out _, out float v);
-                        if (v > 0.06f && v < 0.62f) sleeve = avg;
-                    }
+                    Color c = m.HasProperty("_BaseColor") ? m.GetColor("_BaseColor")
+                        : (m.HasProperty("_Color") ? m.GetColor("_Color") : Color.white);
+                    if (IsNearWhite(c)) continue;
+                    if (n.Contains("skin") || n.Contains("body")) skin = c;
+                    else if (n.Contains("top") || n.Contains("hoodie") || n.Contains("jacket") || n.Contains("shirt") || n.Contains("cloth")) sleeve = c;
                 }
             }
+
+            // Для девушки делаем кулаки и запястья от первого лица более изящными и тонкими.
+            Vector3 handScaleMult = _isFemale ? new Vector3(0.84f, 0.85f, 0.92f) : Vector3.one;
+            Vector3 forearmScaleMult = _isFemale ? new Vector3(0.82f, 0.82f, 1.0f) : Vector3.one;
 
             var mpb = new MaterialPropertyBlock();
             foreach (Renderer r in GetComponentsInChildren<Renderer>(true))
             {
                 if (r.transform.IsChildOf(_visualRoot.transform)) continue;
                 string n = r.name;
+
+                if (n.StartsWith("VM_Sleeve") || n.StartsWith("VM_Skin_Wrist"))
+                {
+                    Transform tr = r.transform;
+                    if (!_baseVmScales.TryGetValue(tr, out Vector3 baseScale))
+                    {
+                        baseScale = tr.localScale;
+                        _baseVmScales[tr] = baseScale;
+                    }
+                    tr.localScale = Vector3.Scale(baseScale, forearmScaleMult);
+                }
+
                 Color c;
                 if (n.StartsWith("VM_Skin")) c = skin;
                 else if (n.StartsWith("VM_Sleeve")) c = sleeve;
@@ -507,6 +589,18 @@ namespace Ogni.Player
                 mpb.SetColor("_BaseColor", c);
                 mpb.SetColor("_Color", c);
                 r.SetPropertyBlock(mpb);
+            }
+
+            foreach (Transform tr in GetComponentsInChildren<Transform>(true))
+            {
+                if (tr.IsChildOf(_visualRoot.transform)) continue;
+                if (!tr.name.StartsWith("VM_Hand_")) continue;
+                if (!_baseVmScales.TryGetValue(tr, out Vector3 baseScale))
+                {
+                    baseScale = tr.localScale;
+                    _baseVmScales[tr] = baseScale;
+                }
+                tr.localScale = Vector3.Scale(baseScale, handScaleMult);
             }
         }
     }

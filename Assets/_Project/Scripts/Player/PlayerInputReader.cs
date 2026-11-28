@@ -25,20 +25,45 @@ namespace Ogni.Player
         private readonly InputAction[] _slots = new InputAction[7];
         private bool _enabledState;
 
-        public Vector2 Move => _move != null ? _move.ReadValue<Vector2>() : Vector2.zero;
-        public Vector2 Look => _look != null ? _look.ReadValue<Vector2>() : Vector2.zero;
-        public bool SprintHeld => _sprint != null && _sprint.IsPressed();
-        public bool CrouchHeld => _crouch != null && _crouch.IsPressed();
-        public bool InteractPressed => _interact != null && _interact.WasPressedThisFrame();
-        public bool JumpPressed => _jump != null && _jump.WasPressedThisFrame();
-        public bool GatherPressed => _gather != null && _gather.WasPressedThisFrame();
-        public bool FlashlightPressed => _flashlight != null && _flashlight.WasPressedThisFrame();
-        public bool FirePressed => _fire != null && _fire.WasPressedThisFrame();
-        public bool FireHeld => _fire != null && _fire.IsPressed();
-        public bool FireReleased => _fire != null && _fire.WasReleasedThisFrame();
-        public bool ReloadPressed => _reload != null && _reload.WasPressedThisFrame();
-        public bool CraftMenuPressed => _craftMenu != null && _craftMenu.WasPressedThisFrame();
-        public bool BuildPressed => _build != null && _build.WasPressedThisFrame();
+        public Vector2 Move
+        {
+            get
+            {
+                Vector2 v = _move != null ? _move.ReadValue<Vector2>() : Vector2.zero;
+                if (v.sqrMagnitude > 0.001f) return v;
+                Keyboard kb = Keyboard.current;
+                if (kb == null) return Vector2.zero;
+                float x = (kb.dKey.isPressed || kb.rightArrowKey.isPressed ? 1f : 0f)
+                        - (kb.aKey.isPressed || kb.leftArrowKey.isPressed ? 1f : 0f);
+                float y = (kb.wKey.isPressed || kb.upArrowKey.isPressed ? 1f : 0f)
+                        - (kb.sKey.isPressed || kb.downArrowKey.isPressed ? 1f : 0f);
+                Vector2 fb = new Vector2(x, y);
+                return fb.sqrMagnitude > 1f ? fb.normalized : fb;
+            }
+        }
+
+        public Vector2 Look
+        {
+            get
+            {
+                Vector2 v = _look != null ? _look.ReadValue<Vector2>() : Vector2.zero;
+                if (v.sqrMagnitude > 0.0001f) return v;
+                return Mouse.current != null ? Mouse.current.delta.ReadValue() : Vector2.zero;
+            }
+        }
+
+        public bool SprintHeld => (_sprint != null && _sprint.IsPressed()) || (Keyboard.current != null && Keyboard.current.leftShiftKey.isPressed);
+        public bool CrouchHeld => (_crouch != null && _crouch.IsPressed()) || (Keyboard.current != null && Keyboard.current.leftCtrlKey.isPressed);
+        public bool InteractPressed => (_interact != null && _interact.WasPressedThisFrame()) || (Keyboard.current != null && Keyboard.current.eKey.wasPressedThisFrame);
+        public bool JumpPressed => (_jump != null && _jump.WasPressedThisFrame()) || (Keyboard.current != null && Keyboard.current.spaceKey.wasPressedThisFrame);
+        public bool GatherPressed => (_gather != null && _gather.WasPressedThisFrame()) || (Keyboard.current != null && Keyboard.current.fKey.wasPressedThisFrame);
+        public bool FlashlightPressed => (_flashlight != null && _flashlight.WasPressedThisFrame()) || (Keyboard.current != null && Keyboard.current.tKey.wasPressedThisFrame);
+        public bool FirePressed => (_fire != null && _fire.WasPressedThisFrame()) || (Mouse.current != null && Mouse.current.leftButton.wasPressedThisFrame);
+        public bool FireHeld => (_fire != null && _fire.IsPressed()) || (Mouse.current != null && Mouse.current.leftButton.isPressed);
+        public bool FireReleased => (_fire != null && _fire.WasReleasedThisFrame()) || (Mouse.current != null && Mouse.current.leftButton.wasReleasedThisFrame);
+        public bool ReloadPressed => (_reload != null && _reload.WasPressedThisFrame()) || (Keyboard.current != null && Keyboard.current.rKey.wasPressedThisFrame);
+        public bool CraftMenuPressed => (_craftMenu != null && _craftMenu.WasPressedThisFrame()) || (Keyboard.current != null && Keyboard.current.tabKey.wasPressedThisFrame);
+        public bool BuildPressed => (_build != null && _build.WasPressedThisFrame()) || (Keyboard.current != null && Keyboard.current.bKey.wasPressedThisFrame);
 
         /// <summary>Нажатый слот инструмента 0..6 (клавиши 1-7) или -1.</summary>
         public int SlotPressed
@@ -57,7 +82,16 @@ namespace Ogni.Player
         private void Awake()
         {
             GameSettings.EnsureLoaded();
-            BuildActions();
+            try
+            {
+                BuildActions();
+            }
+            catch (System.Exception ex)
+            {
+                Debug.LogWarning("[PlayerInputReader] Сброс повреждённых привязок клавиш: " + ex.Message);
+                GameSettings.ResetBindingsToDefault();
+                BuildActions();
+            }
             GameSettings.BindingsChanged += RebuildActions;
         }
 

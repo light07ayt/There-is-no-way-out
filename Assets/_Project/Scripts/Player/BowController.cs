@@ -67,6 +67,7 @@ namespace Ogni.Player
             {
                 _drawing = true;
                 _drawStart = Time.time;
+                GameSounds.Play2D(GameSounds.Kind.BowDraw, 0.65f, UnityEngine.Random.Range(0.95f, 1.06f));
             }
             else if (_drawing && _input.FireReleased)
             {
@@ -74,6 +75,7 @@ namespace Ogni.Player
                 _drawing = false;
                 if (charge >= 0.25f)
                 {
+                    GameSounds.Play2D(GameSounds.Kind.ArrowRelease, Mathf.Lerp(0.55f, 0.90f, charge), UnityEngine.Random.Range(0.94f, 1.08f));
                     Transform aim = aimOrigin != null ? aimOrigin : transform;
                     FireServerRpc(aim.position, aim.forward, charge);
                 }

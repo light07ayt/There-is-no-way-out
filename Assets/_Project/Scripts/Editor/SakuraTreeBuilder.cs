@@ -55,7 +55,7 @@ namespace Ogni.EditorTools
 
             Material petalParticleMat = GetOrCreateParticleMaterial(
                 "Mat_SakuraPetalParticle",
-                new Color(0.96f, 0.78f, 0.87f, 0.92f));
+                new Color(1.0f, 0.82f, 0.91f, 0.92f));
 
             BuildSakuraGeometry(out Mesh woodMesh, out Mesh vinesMesh, out Mesh foliageCardsMesh);
 
@@ -115,8 +115,8 @@ namespace Ogni.EditorTools
             main.simulationSpace = ParticleSystemSimulationSpace.World;
             main.maxParticles = 34;
             main.startColor = new ParticleSystem.MinMaxGradient(
-                new Color(0.97f, 0.82f, 0.90f, 0.95f),
-                new Color(0.90f, 0.58f, 0.74f, 0.90f));
+                new Color(1.0f, 0.85f, 0.93f, 0.95f),
+                new Color(0.95f, 0.62f, 0.79f, 0.90f));
 
             var emission = ps.emission;
             emission.rateOverTime = 5f;

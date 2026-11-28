@@ -238,35 +238,6 @@ namespace Ogni.EditorTools
             Box(t, "Decor_Med", shelf + new Vector3(-0.02f, 1.41f, 0.25f), new Vector3(0.22f, 0.16f, 0.26f), mats.MedicalWhite ?? fabric, false);
             Box(t, "Decor_Can1", shelf + new Vector3(-0.02f, 1.38f, -0.20f), new Vector3(0.11f, 0.15f, 0.11f), mats.FuelCanRed ?? metal, false);
             Box(t, "Decor_Can2", shelf + new Vector3(-0.02f, 1.38f, -0.04f), new Vector3(0.10f, 0.14f, 0.10f), metal, false);
-
-            // 6. Дополнительный реалистичный декор: дровница у камина, прикроватная тумбочка, картины, часы и шторы.
-            // Дровница с поленьями справа от камина.
-            Box(t, "FirewoodRack", new Vector3(-0.92f, fy + 0.28f, -2.65f), new Vector3(0.64f, 0.52f, 0.42f), woodDark, true);
-            for (int f = 0; f < 4; f++)
-            {
-                Box(t, "FirewoodLog_" + f, new Vector3(-0.92f + (f - 1.5f) * 0.12f, fy + 0.22f + (f % 2) * 0.10f, -2.65f),
-                    new Vector3(0.10f, 0.10f, 0.46f), mats.TreeBark, false);
-            }
-
-            // Прикроватная тумбочка с фонарём рядом с кроватью.
-            Vector3 nightStand = new Vector3(2.85f, fy, -0.82f);
-            Box(t, "NightstandBody", nightStand + new Vector3(0f, 0.30f, 0f), new Vector3(0.54f, 0.56f, 0.46f), woodDark, true);
-            Box(t, "NightstandTop", nightStand + new Vector3(0f, 0.60f, 0f), new Vector3(0.58f, 0.04f, 0.50f), woodWall, false);
-            Box(t, "NightstandLampBase", nightStand + new Vector3(0f, 0.70f, 0f), new Vector3(0.12f, 0.16f, 0.12f), metal, false);
-            Box(t, "NightstandLampShade", nightStand + new Vector3(0f, 0.86f, 0f), new Vector3(0.24f, 0.18f, 0.24f), warmGlow, false);
-
-            // Настенная картина над камином и часы на правой стене.
-            Box(t, "MantelFrame", new Vector3(-2.2f, fy + 2.02f, -3.02f), new Vector3(1.10f, 0.72f, 0.04f), woodDark, false);
-            Box(t, "MantelArt", new Vector3(-2.2f, fy + 2.02f, -2.99f), new Vector3(0.94f, 0.56f, 0.02f), mats.StainedAmber ?? fabric, false);
-            Box(t, "WallClockFrame", new Vector3(3.52f, fy + 2.05f, -0.45f), new Vector3(0.05f, 0.36f, 0.36f), woodDark, false);
-            Box(t, "WallClockDial", new Vector3(3.49f, fy + 2.05f, -0.45f), new Vector3(0.02f, 0.28f, 0.28f), mats.MedicalWhite ?? fabric, false);
-
-            // Тканевые занавески по бокам переднего и заднего окон.
-            foreach (float sx in new[] { -0.82f, 0.82f })
-            {
-                Box(t, "CurtainFront", new Vector3(-1.6f + sx, fy + 1.55f, 3.02f), new Vector3(0.28f, 1.32f, 0.05f), fabric, false);
-                Box(t, "CurtainBack", new Vector3(sx, fy + 1.55f, -3.02f), new Vector3(0.28f, 1.32f, 0.05f), fabric, false);
-            }
         }
 
         private static void BuildChair(Transform parent, string name, Vector3 pos, float yaw, Material mat)

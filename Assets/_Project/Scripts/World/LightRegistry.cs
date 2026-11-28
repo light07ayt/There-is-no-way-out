@@ -12,7 +12,8 @@ namespace Ogni.World
     {
         private static readonly List<Light> Lights = new List<Light>(64);
         private static float _nextRefresh;
-        private const float RefreshInterval = 0.25f;
+        // Полный скан Light по сцене дорогой (в городе сотни ламп) - раньше шёл 4 раза в секунду. Для ИИ Тьмы хватает раза в секунду.
+        private const float RefreshInterval = 1.0f;
 
         public static int RegisteredCount
         {
